@@ -1,0 +1,15 @@
+### tests/v2_dollars_check.sql
+ok  SELECT value_reconciliation(1566, 1566, 51240, 65268).label AS exact, value_reconciliation
+    exact | under | refund_gap | over
+    matches the missed spot’s $1,566 | worth $666 less than the missed spot’s $1,566 | 666.0 | gives away $1,866 more than the missed spot’s $1,566
+ok  SELECT spot_id, owed_value_usd, proposed_value_usd, value_gap_usd, value_ratio, dollar_mat
+    spot_id | owed_value_usd | proposed_value_usd | value_gap_usd | value_ratio | dollar_match | dollar_label | owed_impressions | proposed_impressions | spot_coverage_pct
+    SPT-0058222 | 1566.0 | 1566.0 | 0.0 | 1.0 | true | matches the missed spot’s $1,566 | 51240 | 65268 | 1.274
+ok  SELECT package_label, strategy, avail_ids, coverage_pct, proposed_value_usd, dollar_label,
+    package_label | strategy | avail_ids | coverage_pct | proposed_value_usd | dollar_label | rules_passed | rules_total | is_full | failed_rules
+    A | Best match: the top-ranked avail | ["AVL-026683"] | 1.274 | 1566.0 | matches the missed spot’s $1,566 | 11 | 11 | true | []
+    C | Alternative in a different week | ["AVL-025122"] | 1.25 | 1801.0 | $235 more than the missed spot’s $1,566 (115%), within the allowed range | 11 | 11 | true | []
+ok  SELECT count(*) AS options_with_excluded_program FROM inventory_search('SPT-0058222', 25,
+    options_with_excluded_program
+    0
+EXIT 0

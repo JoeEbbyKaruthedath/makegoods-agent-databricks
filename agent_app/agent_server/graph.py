@@ -331,7 +331,11 @@ def build_graph(memory: Optional[Memory] = None, llm_endpoint: str = LLM_ENDPOIN
                           "coverage_pct": p["coverage_pct"], "proposed_value_usd": p["proposed_value_usd"],
                           "dollar_label": p["dollar_label"],
                           **({"partial_refund_usd": p["partial_refund_usd"]} if p["partial_refund_usd"] else {}),
-                          "failed_rules": [c["label"] for c in p["checklist"] if not c["passed"]]} for p in packages],
+                          "failed_rules": [c["label"] for c in p["checklist"] if not c["passed"]],
+                          # what Option A airs: the spots may sit outside the top-ranked options listed above
+                          **({"lines": [{k: ln.get(k) for k in ("avail_id", "air_date", "daypart", "program_name", "program_genre",
+                                                                 "match_score")} for ln in p.get("lines") or []]} if i == 0 else {})}
+                         for i, p in enumerate(packages)],
             "owed_impressions": (state.get("shortfall") or {}).get("owed_impressions"),
         }
         template, version = prompts.load(PROMPT_EXPLAIN)

@@ -1,0 +1,39 @@
+### databricks bundle deploy -t v2 --profile joe-demo-workspace
+Uploading bundle files to /Workspace/Users/<user>/.bundle/<bundle-folder>/v2/files...
+Files: 2 uploaded, 0 deleted
+Resources: 0 created, 0 changed, 0 deleted, 5 unchanged
+EXIT 0
+
+### databricks bundle run makegoods_agent -t v2 --profile joe-demo-workspace
+✓ Getting the status of the app <app>
+✓ App is in RUNNING state
+✓ App compute is in ACTIVE state
+✓ Preparing source code for new app deployment.
+✓ Preparing source code for new app deployment.
+✓ Downloading source code from /Workspace/Users/<principal>/src/01f1e1697ecd13ffa6519608d57ff3bf
+✓ App started successfully
+You can access the app at https://<app-url>
+EXIT 0
+
+### databricks apps get <app>
+{
+ "app_status": "RUNNING",
+ "compute_status": "ACTIVE",
+ "active_deployment": {
+  "status": "SUCCEEDED",
+  "create_time": "2026-11-16T02:57:44Z"
+ },
+ "user_api_scopes": [
+  "dashboards.genie",
+  "iam.access-control:read",
+  "iam.current-user:read",
+  "sql"
+ ],
+ "url": "https://<app-url>"
+}
+
+### databricks apps logs <app> (startup lines)
+2026-11-16T02:57:57Z [APP] INFO:app_shell.start_server:loaded agent {'source': 'registry', 'uri': 'models:/<catalog>.<schema>.makegoods_agent@champion', 'model_id': 'm-95ac1cfb49964a0ba6c30a62f5e1bd5e', 'name': '<catalog>.<schema>.makegoods_agent', 'alias': 'champion', 'version': '7'}
+2026-11-16T02:57:57Z [APP] INFO:     Started server process [613]
+2026-11-16T02:57:59Z [APP] INFO:agent_server.watcher:reply watcher on (sandbox mail, every 60s)
+2026-11-16T02:57:59Z [APP] INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)

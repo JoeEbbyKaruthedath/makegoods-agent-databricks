@@ -22,6 +22,12 @@ It is built to show *how to build agents on Databricks*:
 
 The LLM makes **1–2 calls per make-good**, about 1.4K tokens, roughly 5% of the inherited GPT-assist matcher's ~28K. Every rule runs in SQL.
 
+### Execution evidence
+[`evidence/`](evidence/README.md) holds the real output of running this repository on Databricks: the pipeline update,
+SQL checks of the rules engine, the registration notebook with its evaluation and release gate, the daily job,
+production monitoring, the app deployment, four make-goods run end to end through the deployed app, and the agent's
+actual recommendations, emails and reply readings.
+
 ### v2: the full make-good lifecycle, per-user access
 The `v2` bundle target (branch `feature/v2-lifecycle`) adds, in its own schema, app and Lakebase branch:
 - **Dollars that match:** each option's value against the missed spot, with any partial refund owed.

@@ -1,0 +1,29 @@
+2026/11/15 18:10:04 INFO mlflow.store.db.utils: Creating initial MLflow database tables...
+2026/11/15 18:10:04 INFO mlflow.store.db.utils: Updating database tables
+prompt YOUR_CATALOG.makegoods.mg_explain_recommendation not loaded from registry (Prompt with name=YOUR_CATALOG.makegoods.mg_explain_recommendation not found); using local default
+prompt YOUR_CATALOG.makegoods.mg_offer_email not loaded from registry (Prompt with name=YOUR_CATALOG.makegoods.mg_offer_email not found); using local default
+prompt YOUR_CATALOG.makegoods.mg_parse_request not loaded from registry (Prompt with name=YOUR_CATALOG.makegoods.mg_parse_request not found); using local default
+1. offer lifecycle
+  find make-good                               -> stage=recommended      paused at=make_good_review
+  approve before drafting (not allowed)        -> stage=recommended      paused at=make_good_review
+  check my selection (AVL-025928)              -> stage=recommended      paused at=make_good_review
+  offer A and C                                -> stage=awaiting_manager paused at=manager_review
+  manager approves                             -> stage=approved         paused at=confirm_send
+  seller sends                                 -> stage=sent             paused at=await_client
+  client replies 'Option C works'              -> stage=client_replied   paused at=seller_confirm
+  seller books C                               -> stage=closed           paused at=None
+   events: options_selected, drafted, manager_approve, sent, client_replied, seller_book, make_good
+2. client rule from chat, applied to the open make-good
+  find make-good                               -> stage=recommended      paused at=make_good_review
+  'Ironwood never wants Network Prime Drama'   -> stage=recommended      paused at=confirm_rule
+  seller saves the rule                        -> stage=recommended      paused at=make_good_review
+3. a reply that tries to instruct the system
+  find make-good                               -> stage=recommended      paused at=make_good_review
+  offer A                                      -> stage=awaiting_manager paused at=manager_review
+  manager approves                             -> stage=approved         paused at=confirm_send
+  seller sends                                 -> stage=sent             paused at=await_client
+  injection reply                              -> stage=client_replied   paused at=seller_confirm
+
+all lifecycle checks passed
+2026/11/15 18:10:04 INFO mlflow.tracing.export.async_export_queue: Flushing the async trace logging queue before program exit. This may take a while...
+EXIT 0

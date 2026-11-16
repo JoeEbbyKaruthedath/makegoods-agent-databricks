@@ -151,7 +151,9 @@ def business_rationale(trace):
         guidelines=["The response explains, in plain business language for an ad-ops reviewer, why the recommendation is "
                     "appropriate, giving at least one concrete business reason (any of: impressions delivered vs owed, value vs "
                     "the missed spot, program or genre fit, advertiser preference or client rules, or why no available inventory "
-                    "qualifies). It is not required to mention every kind of reason."])
+                    "qualifies). It is not required to mention every kind of reason. Naming the rules an option misses, and what the seller "
+                    "should do about them, is part of a complete explanation, not a reason to fail."],
+        model="databricks:/databricks-gpt-5-5")  # a different model family from the agent's
 
 
 # COMMAND ----------

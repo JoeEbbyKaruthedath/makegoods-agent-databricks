@@ -1,0 +1,71 @@
+2026/11/15 18:23:52 INFO mlflow.models.evaluation.utils.trace: Auto tracing is temporarily enabled during the model evaluation for computing some metrics and debugging. To disable tracing, call `mlflow.autolog(disable=True)`.
+2026/11/15 18:23:52 INFO mlflow.genai.utils.data_validation: Testing model prediction with the first sample in the dataset. To disable this check, set the MLFLOW_GENAI_EVAL_SKIP_TRACE_VALIDATION environment variable to True.
+
+Evaluating:   0%|          | 0/24 [Elapsed: 00:00, Remaining: ?]
+Evaluating:   4%|▍         | 1/24 [Elapsed: 00:22, Remaining: 08:47]
+Evaluating:  33%|███▎      | 8/24 [Elapsed: 00:23, Remaining: 00:46]
+Evaluating:  62%|██████▎   | 15/24 [Elapsed: 00:38, Remaining: 00:22]
+Evaluating:  67%|██████▋   | 16/24 [Elapsed: 00:39, Remaining: 00:19]
+Evaluating:  71%|███████   | 17/24 [Elapsed: 00:48, Remaining: 00:19]
+Evaluating:  75%|███████▌  | 18/24 [Elapsed: 00:49, Remaining: 00:16]
+Evaluating:  79%|███████▉  | 19/24 [Elapsed: 00:49, Remaining: 00:12]
+Evaluating:  83%|████████▎ | 20/24 [Elapsed: 00:51, Remaining: 00:10]
+Evaluating:  88%|████████▊ | 21/24 [Elapsed: 00:51, Remaining: 00:07]
+Evaluating:  92%|█████████▏| 22/24 [Elapsed: 00:52, Remaining: 00:04]
+Evaluating:  96%|█████████▌| 23/24 [Elapsed: 00:53, Remaining: 00:02]
+Evaluating: 100%|██████████| 24/24 [Elapsed: 00:53, Remaining: 00:00]
+Evaluating: 100%|██████████| 24/24 [Elapsed: 00:53, Remaining: 00:00] [predict_fn: 80%, scorers: 20%]
+Evaluating: 100%|██████████| 24/24 [Elapsed: 00:53, Remaining: 00:00] [predict_fn: 80%, scorers: 20%]
+2026/11/15 18:25:33 INFO mlflow.genai.utils.data_validation: Testing model prediction with the first sample in the dataset. To disable this check, set the MLFLOW_GENAI_EVAL_SKIP_TRACE_VALIDATION environment variable to True.
+WARNING:agent_server.prompts:prompt <catalog>.<schema>.mg_parse_request not loaded from registry (FEATURE_DISABLED: GetPromptVersionByAlias: Prompt registry is not enabled for organization <workspace-id>.); using local default
+
+✨ Evaluation completed.
+
+Metrics and evaluation results are logged to the MLflow run:
+  Run name: component-reply
+  Run ID: f2ccea698d9a4537bc631a6046a73dcb
+View the evaluation results at https://<workspace-host>/ml/experiments/<experiment-id>/evaluation-runs?selectedRunUuid=f2ccea698d9a4537bc631a6046a73dcb
+
+  reply  injection_resisted/mean              1.000
+  reply  reply_parse_correct/mean             0.950
+
+Evaluating:   0%|          | 0/20 [Elapsed: 00:00, Remaining: ?]
+Evaluating:   5%|▌         | 1/20 [Elapsed: 00:12, Remaining: 04:00]
+Evaluating:  20%|██        | 4/20 [Elapsed: 00:17, Remaining: 01:08]
+Evaluating:  35%|███▌      | 7/20 [Elapsed: 00:18, Remaining: 00:33]
+Evaluating:  50%|█████     | 10/20 [Elapsed: 00:24, Remaining: 00:24]
+Evaluating:  65%|██████▌   | 13/20 [Elapsed: 00:28, Remaining: 00:15]
+Evaluating:  80%|████████  | 16/20 [Elapsed: 00:30, Remaining: 00:07]
+Evaluating:  95%|█████████▌| 19/20 [Elapsed: 00:37, Remaining: 00:01]
+Evaluating: 100%|██████████| 20/20 [Elapsed: 00:40, Remaining: 00:00] [predict_fn: 83%, scorers: 17%]
+Evaluating: 100%|██████████| 20/20 [Elapsed: 00:40, Remaining: 00:00] [predict_fn: 83%, scorers: 17%]
+2026/11/15 18:26:53 INFO mlflow.genai.utils.data_validation: Testing model prediction with the first sample in the dataset. To disable this check, set the MLFLOW_GENAI_EVAL_SKIP_TRACE_VALIDATION environment variable to True.
+
+✨ Evaluation completed.
+
+Metrics and evaluation results are logged to the MLflow run:
+  Run name: component-rule
+  Run ID: 33f022c83169433bb375f05dea58005c
+View the evaluation results at https://<workspace-host>/ml/experiments/<experiment-id>/evaluation-runs?selectedRunUuid=33f022c83169433bb375f05dea58005c
+
+  rule   rule_parse_correct/mean              1.000
+
+Evaluating:   0%|          | 0/4 [Elapsed: 00:00, Remaining: ?]
+Evaluating:  25%|██▌       | 1/4 [Elapsed: 00:21, Remaining: 01:04]
+Evaluating:  50%|█████     | 2/4 [Elapsed: 00:21, Remaining: 00:21]
+Evaluating: 100%|██████████| 4/4 [Elapsed: 00:22, Remaining: 00:00]
+Evaluating: 100%|██████████| 4/4 [Elapsed: 00:22, Remaining: 00:00] [predict_fn: 66%, scorers: 34%]
+Evaluating: 100%|██████████| 4/4 [Elapsed: 00:22, Remaining: 00:00] [predict_fn: 66%, scorers: 34%]
+
+✨ Evaluation completed.
+
+Metrics and evaluation results are logged to the MLflow run:
+  Run name: component-offer
+  Run ID: 30a83fd159314b94b9feb418ae5ce613
+View the evaluation results at https://<workspace-host>/ml/experiments/<experiment-id>/evaluation-runs?selectedRunUuid=30a83fd159314b94b9feb418ae5ce613
+
+  offer  offer_email_quality/mean             1.000
+  offer  offer_grounded/mean                  1.000
+
+COMPONENT GATE: PASSED
+EXIT 0

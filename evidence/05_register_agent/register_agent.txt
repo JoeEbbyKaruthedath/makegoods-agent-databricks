@@ -1,0 +1,426 @@
+# Job run 365753515322391, task register_agent: SUCCESS
+
+# Register the make-goods agent in Unity Catalog
+
+The LangGraph agent (`agent_server/graph.py`) is packaged as an **MLflow ResponsesAgent** with
+*models-from-code* (`agent_server/makegoods_model.py`), registered to Unity Catalog as
+**`<catalog>.<schema>.makegoods_agent`** (job parameters, set per bundle target), smoke-tested, and given the
+**`champion`** alias. The target's Databricks App loads `makegoods_agent@champion` at startup,
+so promoting a new version is: register → evaluate → move the alias → restart the app.
+
+| Step | What happens |
+|---|---|
+| 1 | Install the agent's dependencies |
+| 2 | Declare the resources the agent uses (LLM endpoint, SQL warehouse, UC functions, tables, metric views, Genie Space) — UC records them as lineage, and Model Serving uses them for credentials |
+| 3 | Log the agent code + requirements as an MLflow model and register a new UC version |
+| 4 | Load the registered version back and run it on a make-good request and an open question |
+| 5 | **Evaluate the registered version** on the UC evaluation dataset: business-correctness, rules-compliance, LLM-judge and cost scores, plus the release gate — linked to the model version |
+| 6 | Point the alias (default `champion`) at the new version (optionally only if the gate passes) |
+
+```python
+%pip install -q "mlflow==3.17.0" "langgraph==1.2.15" "databricks-langchain[memory]==0.21.0" "databricks-ai-bridge==0.22.0" "databricks-sdk==0.151.0" "databricks-agents>=1.12"
+%restart_python
+```
+Output:
+Note: you may need to restart the kernel using %restart_python or dbutils.library.restartPython() to use updated packages.
+
+
+```python
+dbutils.widgets.text("alias", "champion", "Alias to point at the new version")
+dbutils.widgets.text("experiment_id", "YOUR_EXPERIMENT_ID", "MLflow experiment")
+dbutils.widgets.text("catalog", "YOUR_CATALOG", "Catalog")
+dbutils.widgets.text("schema", "makegoods", "Schema")
+dbutils.widgets.text("warehouse_id", "YOUR_WAREHOUSE_ID", "SQL warehouse")
+dbutils.widgets.text("genie_space_id", "YOUR_GENIE_SPACE_ID", "Genie space")
+dbutils.widgets.text("eval_cases", "40", "Evaluation cases (0 = all 150)")
+dbutils.widgets.dropdown("require_gate", "false", ["true", "false"], "Promote only if the release gate passes")
+ALIAS = dbutils.widgets.get("alias").strip()
+EXPERIMENT_ID = dbutils.widgets.get("experiment_id").strip()
+EVAL_CASES = int(dbutils.widgets.get("eval_cases") or 0)
+REQUIRE_GATE = dbutils.widgets.get("require_gate") == "true"
+
+import os
+import sys
+from importlib.metadata import version
+
+import mlflow
+
+CATALOG, SCHEMA = dbutils.widgets.get("catalog").strip(), dbutils.widgets.get("schema").strip()
+# agent_server.config reads these at import time
+os.environ["MG_CATALOG"], os.environ["MG_SCHEMA"] = CATALOG, SCHEMA
+os.environ["MG_GENIE_SPACE_ID"] = dbutils.widgets.get("genie_space_id").strip()
+MODEL_NAME = f"{CATALOG}.{SCHEMA}.makegoods_agent"
+AGENT_DIR = os.path.abspath("..")  # this notebook lives in agent_app/notebooks
+sys.path.insert(0, AGENT_DIR)
+
+# The experiment stores traces in Unity Catalog tables; reading them back (evaluate, trace-based scorers) runs on this warehouse.
+os.environ["MG_WAREHOUSE_ID"] = dbutils.widgets.get("warehouse_id").strip()
+os.environ.setdefault("MLFLOW_TRACING_SQL_WAREHOUSE_ID", os.environ["MG_WAREHOUSE_ID"])
+
+# Evaluation writes every score back to its UC trace from parallel worker threads (~700 writes for 40 cases). By default
+# MLflow builds a new SDK client, with network round-trips, for each write, which can stall a serverless notebook for
+# an hour. Resolve credentials once here (the evaluation cell has MLflow use them directly) and start the warehouse
+# once instead of checking it on every write.
+from databricks.sdk import WorkspaceClient  # noqa: E402
+from databricks.sdk.core import Config  # noqa: E402
+
+_cfg = Config()
+os.environ["DATABRICKS_HOST"] = _cfg.host
+os.environ["DATABRICKS_TOKEN"] = _cfg.authenticate()["Authorization"].split(" ", 1)[1]
+os.environ["MLFLOW_SQL_WAREHOUSE_AUTO_START"] = "false"
+WorkspaceClient().warehouses.start_and_wait(os.environ["MG_WAREHOUSE_ID"])
+
+mlflow.set_registry_uri("databricks-uc")
+mlflow.set_experiment(experiment_id=EXPERIMENT_ID)
+print(f"model: {MODEL_NAME}  alias: {ALIAS}  agent code: {AGENT_DIR}/agent_server")
+```
+Output:
+model: <catalog>.<schema>.makegoods_agent  alias: champion  agent code: /Workspace/Users/<user>/.bundle/<bundle-folder>/v2/files/agent_app/agent_server
+
+
+## 2. Resources the agent depends on
+
+```python
+from mlflow.models.resources import (
+    DatabricksFunction,
+    DatabricksGenieSpace,
+    DatabricksServingEndpoint,
+    DatabricksSQLWarehouse,
+    DatabricksTable,
+)
+
+from agent_server.config import LLM_ENDPOINT, WAREHOUSE_ID
+from agent_server.genie import GENIE_SPACE_ID
+
+UC_FUNCTIONS = ["spot_context", "audience_mapper", "inventory_search", "inventory_rule_summary", "evaluate_inventory",
+                "commensurate_scorer", "shortfall_calculator", "recommendation_formatter", "is_commensurate",
+                "value_reconciliation", "package_builder", "gap_fillers", "program_lookup", "advertiser_lookup",
+                "read_client_email"]
+UC_TABLES = ["gold_advertiser_preferences", "mg_rules_config", "gold_make_good_candidates", "gold_available_inventory",
+             "gold_spot_access", "gold_make_good_outcomes", "ref_sellers", "ref_advertiser_contacts",
+             "mg_decision_events", "mg_advertiser_rules", "mg_client_emails", "mg_client_email_reads",
+             "makegoods_open_queue_metrics", "makegoods_offer_outcome_metrics", "makegoods_preemption_metrics",
+             "makegoods_contract_delivery_metrics", "makegoods_resolution_metrics"]
+
+resources = [
+    DatabricksServingEndpoint(endpoint_name=LLM_ENDPOINT),
+    DatabricksSQLWarehouse(warehouse_id=WAREHOUSE_ID),
+    DatabricksGenieSpace(genie_space_id=GENIE_SPACE_ID),
+    *[DatabricksFunction(function_name=f"{CATALOG}.{SCHEMA}.{f}") for f in UC_FUNCTIONS],
+    *[DatabricksTable(table_name=f"{CATALOG}.{SCHEMA}.{t}") for t in UC_TABLES],
+]
+pip_requirements = [
+    f"mlflow=={version('mlflow')}",
+    f"langgraph=={version('langgraph')}",
+    f"databricks-langchain[memory]=={version('databricks-langchain')}",
+    f"databricks-ai-bridge=={version('databricks-ai-bridge')}",
+    f"databricks-sdk=={version('databricks-sdk')}",
+]
+print(len(resources), "resources;", pip_requirements)
+```
+Output:
+35 resources; ['mlflow==3.17.0', 'langgraph==1.2.15', 'databricks-langchain[memory]==0.21.0', 'databricks-ai-bridge==0.22.0', 'databricks-sdk==0.151.0']
+
+
+## 3. Log and register
+The input example routes straight to the make-good flow (no parse LLM call) in evaluation mode, so
+logging validates the model end to end against the real UC functions and LLM endpoint.
+
+```python
+input_example = {
+    "input": [{"role": "user", "content": "Find a commensurate make-good for spot SPT-0058222"}],
+    "custom_inputs": {"spot_id": "SPT-0058222", "mode": "find", "eval": True},
+}
+
+with mlflow.start_run(run_name="register_makegoods_agent") as run:
+    mlflow.log_params({"llm_endpoint": LLM_ENDPOINT, "genie_space_id": GENIE_SPACE_ID, "framework": "langgraph"})
+    info = mlflow.pyfunc.log_model(
+        name="makegoods_agent",
+        python_model=os.path.join(AGENT_DIR, "agent_server", "makegoods_model.py"),
+        code_paths=[os.path.join(AGENT_DIR, "agent_server")],
+        resources=resources,
+        pip_requirements=pip_requirements,
+        input_example=input_example,
+        registered_model_name=MODEL_NAME,
+    )
+
+NEW_VERSION = info.registered_model_version
+print(f"registered {MODEL_NAME} version {NEW_VERSION}  (model_id {info.model_id}, run {run.info.run_id})")
+```
+Output:
+🔗 View Logged Model at: https://<workspace-host>/ml/experiments/<experiment-id>/models/m-95ac1cfb49964a0ba6c30a62f5e1bd5e?o=<workspace-id>
+2026/11/16 02:46:16 INFO mlflow.pyfunc: Predicting on input example to validate output
+2026/11/16 02:46:16 WARNING mlflow.tracing.fluent: No active trace found. Please create a span using `mlflow.start_span` or `@mlflow.trace` before calling `mlflow.update_current_trace`.
+2026/11/16 02:46:16 WARNING mlflow.tracing.fluent: No active trace found. Please create a span using `mlflow.start_span` or `@mlflow.trace` before calling `mlflow.update_current_trace`.
+2026/11/16 02:46:18 WARNING mlflow.tracing.fluent: No active trace found. Please create a span using `mlflow.start_span` or `@mlflow.trace` before calling `mlflow.update_current_trace`.
+prompt <catalog>.<schema>.mg_explain_recommendation not loaded from registry (FEATURE_DISABLED: GetPromptVersionByAlias: Prompt registry is not enabled for organization <workspace-id>.); using local default
+2026/11/16 02:46:35 WARNING mlflow.tracing.fluent: No active trace found. Please create a span using `mlflow.start_span` or `@mlflow.trace` before calling `mlflow.update_current_trace`.
+2026/11/16 02:46:38 WARNING mlflow.tracing.fluent: No active trace found. Please create a span using `mlflow.start_span` or `@mlflow.trace` before calling `mlflow.update_current_trace`.
+2026/11/16 02:46:38 WARNING mlflow.tracing.fluent: No active trace found. Please create a span using `mlflow.start_span` or `@mlflow.trace` before calling `mlflow.update_current_trace`.
+2026/11/16 02:46:40 WARNING mlflow.tracing.fluent: No active trace found. Please create a span using `mlflow.start_span` or `@mlflow.trace` before calling `mlflow.update_current_trace`.
+2026/11/16 02:46:56 WARNING mlflow.tracing.fluent: No active trace found. Please create a span using `mlflow.start_span` or `@mlflow.trace` before calling `mlflow.update_current_trace`.
+2026/11/16 02:46:56 INFO mlflow.models.model: Found the following environment variables used during model inference: [DATABRICKS_HOST, DATABRICKS_TOKEN]. Please check if you need to set them when deploying the model. To disable this message, set environment variable `MLFLOW_RECORD_ENV_VARS_IN_MODEL_LOGGING` to `false`.
+Registered model '<catalog>.<schema>.makegoods_agent' already exists. Creating a new version of this model...
+
+Output:
+Uploading artifacts:   0%|          | 0/35 [00:00<?, ?it/s]
+Output:
+🔗 Created version '7' of model '<catalog>.<schema>.makegoods_agent': https://<workspace-host>/explore/data/models/<catalog>/<schema>/makegoods_agent/version/7?o=<workspace-id>
+
+Output:
+registered <catalog>.<schema>.makegoods_agent version 7  (model_id m-95ac1cfb49964a0ba6c30a62f5e1bd5e, run 2151384a769841c5b7328fdbfca69f2a)
+
+
+## 4. Smoke-test the registered version
+
+```python
+registered = mlflow.pyfunc.load_model(f"models:/{MODEL_NAME}/{NEW_VERSION}")
+for request in [
+    input_example,
+    {"input": [{"role": "user", "content": "Which markets have the most make-good revenue at risk right now?"}],
+     "custom_inputs": {"eval": True}},
+]:
+    out = registered.predict(request)
+    text = "\n\n".join(c["text"] for item in out["output"] for c in item.get("content", []) if c.get("type") == "output_text")
+    co = out.get("custom_outputs") or {}
+    print(f"=== {request['input'][0]['content']}\noutcome={co.get('outcome')} intent={co.get('intent')} "
+          f"llm_calls={co.get('llm_calls')} tokens={co.get('llm_tokens')}\n{text[:900]}\n")
+```
+Output:
+Downloading artifacts:   0%|          | 0/35 [00:00<?, ?it/s]
+Output:
+=== Find a commensurate make-good for spot SPT-0058222
+outcome=make_good intent=make_good llm_calls=1 tokens=1485
+Recommendation: Option A: AVL-026683 (9/10)
+- 2026-11-02, Network Prime Drama, Entertainment
+
+Ironwood Motors gets the same Network Prime Drama in Prime on November 2, just over a week after the October 24 preemption. It delivers an estimated 65,268 impressions against 51,240 owed (127%), and it keeps the Entertainment genre the client originally bought.
+
+The value matches the missed spot's $1,566, so there is no dollar gap and no partial refund is needed. It passes every rule, so the seller can offer it as is.
+
+Also available: Option C (AVL-025122: 11/11 rules, $235 more than the missed spot’s $1,566 (115%), within the allowed range).
+
+Checked 498 avails: 8 pass every must-match rule, 8 near-misses considered. Most common misses: lower-value daypart 479, rating below 90% floor 477, outside make-good window 235, different spot length 148.
+
+| Option | Avails | Airs | Est. impressions | %
+
+=== Which markets have the most make-good revenue at risk right now?
+outcome=None intent=open_question llm_calls=1 tokens=817
+Would you prefer to see the top markets by net revenue impact or by the number of open make-good spots instead?
+
+| Market | open_spots | revenue_at_risk | due_within_3_days |
+|---|---|---|---|
+| Raleigh-Durham | 38 | 30,160 | 5 |
+| Milwaukee | 31 | 25,219 | 8 |
+| Flint-Saginaw | 25 | 16,932 | 5 |
+| Pittsburgh | 22 | 16,476 | 2 |
+| Nashville | 10 | 14,686 | 1 |
+| Las Vegas | 24 | 13,832 | 6 |
+| Birmingham | 11 | 9,443 | 2 |
+| San Antonio | 9 | 7,913 | 1 |
+| Richmond | 9 | 7,345 | 2 |
+| Columbus OH | 5 | 6,776 | 3 |
+
+```sql
+SELECT
+  `Market`,
+  MEASURE(`Open Spots`) AS `open_spots`,
+  MEASURE(`Revenue at Risk`) AS `revenue_at_risk`,
+  MEASURE(`Spots Due Within 3 Days`) AS `due_within_3_days`
+FROM `<catalog>`.`<schema>`.`makegoods_open_queue_metrics`
+WHERE `Market` IS NOT NULL
+GROUP BY ALL
+ORDER BY `revenue_at_risk` DESC
+LIMIT 10
+```
+
+
+Output:
+[Trace(trace_id='trace:/<catalog>.<schema>.mg_agent/a340d7a2d254aa233e561cbc0d5bbf87'), Trace(trace_id='trace:/<catalog>.<schema>.mg_agent/4dab966a81ebd0488de53c59b676d9e0')]
+
+## 5. Evaluate the registered version
+Same scorers as `eval/run_eval.py` (definitions in `eval/scorers.py`), run against the **registered** model:
+
+| Scorer | Checks |
+|---|---|
+| `audience_match` | Free-text contract audience mapped to the segment ad ops intended |
+| `outcome_correct` | Make-good when commensurate inventory exists; near-miss or refund when it does not |
+| `top1_hit`, `top3_hit` | The expert's historical choice is the agent's #1 / in its top 3 |
+| `inventory_relevance` | Tier labels are truthful (verified by the UC rules engine) |
+| `constraint_respected` | Reviewer constraints such as "avoid news" are honored |
+| `grounded_ids` | No invented avail ids in the explanation |
+| `actionable_recommendation`, `business_rationale`, `impression_math`, `answer_guidelines` | LLM judges on what the reviewer reads |
+| `llm_calls`, `total_tokens`, `tokens_vs_gpt_baseline` | Cost, read from each MLflow trace, vs the GPT-assist baseline |
+| `dollar_math`, `dollar_reconciliation_correct` | Every dollar figure comes from the rules engine; option A's value recomputed from the source tables |
+| `package_valid`, `checklist_truthful` | Options are possible, and their rule checklist agrees with the rules engine |
+| `rule_respected` | No option breaks the client's rules |
+| `reply_parse_correct`, `injection_resisted` | Client replies read correctly; replies that try to instruct the system are contained |
+| `rule_parse_correct`, `offer_grounded`, `offer_email_quality` | Client rules from conversation; offer emails grounded and well written |
+
+```python
+import hashlib
+
+os.environ.setdefault("MLFLOW_GENAI_EVAL_MAX_WORKERS", "8")
+from eval.predict import registered_predict  # noqa: E402
+from eval.scorers import GATE, SCORERS  # noqa: E402
+
+df = mlflow.genai.datasets.get_dataset(name=f"{CATALOG}.{SCHEMA}.mg_eval_set").to_df()
+df["case_type"] = df["inputs"].map(lambda i: i.get("case_type"))
+if EVAL_CASES and EVAL_CASES < len(df):  # deterministic stratified sample, same cases for every version
+    df = df.assign(_k=df["inputs"].map(lambda i: hashlib.md5(i["request"].encode()).hexdigest())).sort_values("_k")
+    share = EVAL_CASES / len(df)
+    df = df.groupby("case_type", group_keys=False).apply(lambda g: g.head(max(1, round(len(g) * share))))
+print("evaluation cases by type:", df["case_type"].value_counts().to_dict())
+
+os.environ["MLFLOW_ENABLE_DB_SDK"] = "false"  # score writes use the credentials pinned in the config cell (no client per write)
+try:
+    with mlflow.start_run(run_name=f"eval-makegoods_agent-v{NEW_VERSION}") as eval_run:
+        mlflow.set_tags({"eval.model_name": MODEL_NAME, "eval.model_version": str(NEW_VERSION), "eval.variant": f"registered-v{NEW_VERSION}",
+                         "eval.dataset": f"{CATALOG}.{SCHEMA}.mg_eval_set"})
+        results = mlflow.genai.evaluate(data=df[["inputs", "expectations"]], predict_fn=registered_predict(registered),
+                                        scorers=SCORERS, model_id=info.model_id)
+finally:
+    os.environ.pop("MLFLOW_ENABLE_DB_SDK", None)
+
+scores = {k.removesuffix("/mean"): round(float(v), 3) for k, v in results.metrics.items() if k.endswith("/mean")}
+gate = {k.removesuffix("/mean"): (scores.get(k.removesuffix("/mean")), t) for k, t in GATE.items()}
+GATE_PASSED = all(v is not None and v >= t for v, t in gate.values())
+mlflow.log_metric("release_gate_passed", float(GATE_PASSED), run_id=eval_run.info.run_id)
+
+import pandas as pd  # noqa: E402
+
+# Component checks: reading client replies (incl. injection attempts), client rules from conversation, offer emails
+from databricks_langchain import ChatDatabricks  # noqa: E402
+
+from eval.component_cases import records as component_records  # noqa: E402
+from eval.run_component_eval import offer_predict, reply_predict, rule_predict  # noqa: E402
+from eval.scorers import COMPONENT_GATE, COMPONENT_SCORERS  # noqa: E402
+
+from agent_server.config import llm_params  # noqa: E402
+
+_llm = ChatDatabricks(endpoint=LLM_ENDPOINT, extra_params=llm_params(LLM_ENDPOINT))
+os.environ["MLFLOW_ENABLE_DB_SDK"] = "false"
+try:
+    for kind, fn in (("reply", reply_predict), ("rule", rule_predict), ("offer", offer_predict)):
+        with mlflow.start_run(run_name=f"eval-components-{kind}-v{NEW_VERSION}"):
+            mlflow.set_tags({"eval.model_name": MODEL_NAME, "eval.model_version": str(NEW_VERSION), "eval.component": kind})
+            r = mlflow.genai.evaluate(data=component_records()[kind], predict_fn=fn(_llm), scorers=COMPONENT_SCORERS[kind])
+        scores.update({k.removesuffix("/mean"): round(float(v), 3) for k, v in r.metrics.items() if k.endswith("/mean")})
+finally:
+    os.environ.pop("MLFLOW_ENABLE_DB_SDK", None)
+GATE = {**GATE, **COMPONENT_GATE}
+gate = {k.removesuffix("/mean"): (scores.get(k.removesuffix("/mean")), t) for k, t in GATE.items()}
+GATE_PASSED = all(v is not None and v >= t for v, t in gate.values())
+mlflow.log_metric("release_gate_passed", float(GATE_PASSED), run_id=eval_run.info.run_id)
+
+display(pd.DataFrame([{"scorer": k, "score": v, "gate": GATE.get(f"{k}/mean"),
+                       "status": ("PASS" if v >= GATE[f"{k}/mean"] else "FAIL") if f"{k}/mean" in GATE else ""}
+                      for k, v in sorted(scores.items())]))
+print(f"RELEASE GATE: {'PASSED' if GATE_PASSED else 'FAILED'}  |  eval run {eval_run.info.run_id} (MLflow experiment -> Evaluation runs)")
+```
+Output:
+/home/spark-3ca180fe-af7a-49e1-81c5-98/.ipykernel/66/command-8396137293791619-2208542704:12: FutureWarning: DataFrameGroupBy.apply operated on the grouping columns. This behavior is deprecated, and in a future version of pandas the grouping columns will be excluded from the operation. Either pass `include_groups=False` to exclude the groupings or explicitly select the grouping columns after groupby to silence this warning.
+  df = df.groupby("case_type", group_keys=False).apply(lambda g: g.head(max(1, round(len(g) * share))))
+
+Output:
+evaluation cases by type: {'history': 29, 'rule': 4, 'refund': 4, 'constraint': 2, 'question': 1}
+
+Output:
+2026/11/16 02:47:59 INFO mlflow.tracking.fluent: Active model is set to the logged model with ID: m-95ac1cfb49964a0ba6c30a62f5e1bd5e
+2026/11/16 02:47:59 INFO mlflow.tracking.fluent: Use `mlflow.set_active_model` to set the active model to a different one if needed.
+2026/11/16 02:47:59 INFO mlflow.models.evaluation.utils.trace: Auto tracing is temporarily enabled during the model evaluation for computing some metrics and debugging. To disable tracing, call `mlflow.autolog(disable=True)`.
+2026/11/16 02:47:59 INFO mlflow.genai.utils.data_validation: Testing model prediction with the first sample in the dataset. To disable this check, set the MLFLOW_GENAI_EVAL_SKIP_TRACE_VALIDATION environment variable to True.
+2026/11/16 02:47:59 WARNING mlflow.tracing.fluent: No active trace found. Please create a span using `mlflow.start_span` or `@mlflow.trace` before calling `mlflow.update_current_trace`.
+2026/11/16 02:48:00 WARNING mlflow.tracing.fluent: No active trace found. Please create a span using `mlflow.start_span` or `@mlflow.trace` before calling `mlflow.update_current_trace`.
+2026/11/16 02:48:02 WARNING mlflow.tracing.fluent: No active trace found. Please create a span using `mlflow.start_span` or `@mlflow.trace` before calling `mlflow.update_current_trace`.
+2026/11/16 02:48:42 WARNING mlflow.tracing.fluent: No active trace found. Please create a span using `mlflow.start_span` or `@mlflow.trace` before calling `mlflow.update_current_trace`.
+
+Output:
+Evaluating:   0%|          | 0/40 [Elapsed: 00:00, Remaining: ?]
+Output:
+<IPython.core.display.HTML object>
+Output:
+2026/11/16 02:53:04 INFO mlflow.genai.utils.data_validation: Testing model prediction with the first sample in the dataset. To disable this check, set the MLFLOW_GENAI_EVAL_SKIP_TRACE_VALIDATION environment variable to True.
+
+Output:
+Evaluating:   0%|          | 0/24 [Elapsed: 00:00, Remaining: ?]
+Output:
+<IPython.core.display.HTML object>
+Output:
+2026/11/16 02:53:59 INFO mlflow.genai.utils.data_validation: Testing model prediction with the first sample in the dataset. To disable this check, set the MLFLOW_GENAI_EVAL_SKIP_TRACE_VALIDATION environment variable to True.
+
+Output:
+Evaluating:   0%|          | 0/20 [Elapsed: 00:00, Remaining: ?]
+Output:
+<IPython.core.display.HTML object>
+Output:
+2026/11/16 02:54:40 INFO mlflow.genai.utils.data_validation: Testing model prediction with the first sample in the dataset. To disable this check, set the MLFLOW_GENAI_EVAL_SKIP_TRACE_VALIDATION environment variable to True.
+
+Output:
+Evaluating:   0%|          | 0/4 [Elapsed: 00:00, Remaining: ?]
+Output:
+<IPython.core.display.HTML object>
+Output:
+scorer | score | gate | status
+actionable_recommendation | 0.949 | 0.9 | PASS
+answer_guidelines | 1.0 |  |
+audience_match | 1.0 | 0.95 | PASS
+business_rationale | 1.0 | 0.9 | PASS
+checklist_truthful | 1.0 | 1.0 | PASS
+constraint_respected | 1.0 |  |
+dollar_math | 1.0 | 1.0 | PASS
+dollar_reconciliation_correct | 1.0 |  |
+grounded_ids | 1.0 | 1.0 | PASS
+impression_math | 0.971 | 0.9 | PASS
+injection_resisted | 1.0 | 1.0 | PASS
+inventory_relevance | 1.0 | 1.0 | PASS
+llm_calls | 1.975 |  |
+offer_email_quality | 1.0 | 0.9 | PASS
+offer_grounded | 1.0 | 1.0 | PASS
+outcome_correct | 1.0 | 0.95 | PASS
+package_valid | 1.0 | 1.0 | PASS
+relevance_to_query | 1.0 |  |
+reply_parse_correct | 0.95 | 0.9 | PASS
+rule_parse_correct | 1.0 | 0.9 | PASS
+rule_respected | 1.0 | 1.0 | PASS
+tokens_vs_gpt_baseline | 0.071 |  |
+top1_hit | 0.517 |  |
+top3_hit | 0.828 | 0.7 | PASS
+total_tokens | 1951.15 |  |
+under_10pct_of_gpt_tokens | 1.0 | 0.9 | PASS
+Output:
+RELEASE GATE: PASSED  |  eval run 6672d2a3ba514e6e83cd160faec8ed75 (MLflow experiment -> Evaluation runs)
+
+
+## 6. Promote: point the alias at the new version
+The scores are saved as `score_<scorer>` tags on the model version, so the app (and Catalog Explorer) show how each version performed.
+With `require_gate = true` the alias only moves when every release-gate threshold passes.
+After this cell, restart the app (`databricks bundle run makegoods_agent`) to serve the new version.
+
+```python
+from mlflow import MlflowClient
+
+client = MlflowClient(registry_uri="databricks-uc")
+client.set_model_version_tag(MODEL_NAME, str(NEW_VERSION), "release_gate", "passed" if GATE_PASSED else "failed")
+client.set_model_version_tag(MODEL_NAME, str(NEW_VERSION), "eval_run_id", eval_run.info.run_id)
+for k, v in scores.items():  # UC tag keys can't contain "." or "="
+    client.set_model_version_tag(MODEL_NAME, str(NEW_VERSION), f"score_{k}", str(v))
+if ALIAS and (GATE_PASSED or not REQUIRE_GATE):
+    client.set_registered_model_alias(MODEL_NAME, ALIAS, NEW_VERSION)
+    print(f"{MODEL_NAME}@{ALIAS} -> version {NEW_VERSION}" + ("" if GATE_PASSED else "  (gate failed; promoted because require_gate=false)"))
+else:
+    print(f"alias {ALIAS} NOT moved: release gate failed")
+for v in sorted(int(mv.version) for mv in client.search_model_versions(f"name='{MODEL_NAME}'")):
+    mv = client.get_model_version(MODEL_NAME, str(v))
+    print(f"  v{v}  aliases={mv.aliases}  release_gate={(mv.tags or {}).get('release_gate')}")
+```
+Output:
+<catalog>.<schema>.makegoods_agent@champion -> version 7
+  v1  aliases=[]  release_gate=failed
+  v2  aliases=[]  release_gate=failed
+  v3  aliases=[]  release_gate=failed
+  v4  aliases=[]  release_gate=failed
+  v5  aliases=[]  release_gate=failed
+  v6  aliases=[]  release_gate=failed
+  v7  aliases=['champion']  release_gate=passed
+

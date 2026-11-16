@@ -1,0 +1,6 @@
+### databricks bundle run production_monitoring -t v2 --profile joe-demo-workspace
+Run URL: https://<workspace-host>/jobs/478412135284100/runs/102505507063638?o=<workspace-id>
+
+2026-11-15 18:55:28 "makegoods_production_monitoring" RUNNING
+2026-11-15 18:57:42 "makegoods_production_monitoring" TERMINATED SUCCESS
+EXIT 0

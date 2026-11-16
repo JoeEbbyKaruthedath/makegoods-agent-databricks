@@ -1,0 +1,6 @@
+### databricks bundle run register_agent -t v2 --profile joe-demo-workspace
+Run URL: https://<workspace-host>/jobs/360675457984897/runs/365753515322391?o=<workspace-id>
+
+2026-11-15 18:44:47 "makegoods_register_agent" RUNNING
+2026-11-15 18:55:26 "makegoods_register_agent" TERMINATED SUCCESS
+EXIT 0

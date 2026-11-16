@@ -4,6 +4,7 @@ Code scorers check business correctness against ground truth and the rules engin
 check the explanation the reviewer reads; trace scorers measure cost straight from the MLflow trace.
 Scorers return None when a check does not apply to a case type (e.g. no expected avail for questions).
 """
+import os
 import re
 from functools import lru_cache
 
@@ -137,8 +138,13 @@ def grounded_ids(outputs):
                     f"all {len(mentioned)} mentioned avail ids are ranked options or package avails")
 
 
-def _judge(name, guideline, inputs, outputs):
-    return meets_guidelines(name=name, guidelines=[guideline],
+# business_rationale is judged by a model from another family than the agent's: the default judge failed explanations
+# for naming the rules an option misses, which its guideline allows
+RATIONALE_JUDGE = os.getenv("MG_RATIONALE_JUDGE", "databricks:/databricks-gpt-5-5")
+
+
+def _judge(name, guideline, inputs, outputs, model=None):
+    return meets_guidelines(name=name, guidelines=[guideline], model=model,
                             context={"request": inputs.get("request"), "response": (outputs or {}).get("response", "")})
 
 
@@ -162,8 +168,9 @@ def business_rationale(inputs, outputs):
     return _judge("business_rationale", "The response explains, in plain business language for an ad-ops reviewer, why the "
                   "recommendation is appropriate, giving at least one concrete business reason (any of: impressions delivered "
                   "vs owed, value vs the missed spot, program or genre fit, advertiser preference or client rules, or why no "
-                  "available inventory qualifies). It is not required to mention every kind of reason.",
-                  inputs, outputs)
+                  "available inventory qualifies). It is not required to mention every kind of reason. Naming the rules an option misses, and what the seller "
+                  "should do about them, is part of a complete explanation, not a reason to fail.",
+                  inputs, outputs, model=RATIONALE_JUDGE)
 
 
 @scorer

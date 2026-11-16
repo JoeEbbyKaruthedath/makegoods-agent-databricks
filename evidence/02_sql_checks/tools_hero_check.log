@@ -1,0 +1,49 @@
+### tests/tools_hero_check.sql
+ok  SELECT spot_id, advertiser_name, call_letters, broadcast_date, daypart, program_name, audi
+    spot_id | advertiser_name | call_letters | broadcast_date | daypart | program_name | audience_segment_text | guaranteed_rating | owed_impressions | makegood_deadline | latest_offer_status
+    SPT-0058222 | Ironwood Motors | KPBT | 2026-10-24 | Prime | Network Prime Drama | Adults 25-54 | 6.1 | 51240 | 2026-11-07 | No offer
+ok  SELECT * FROM audience_mapper('ADV-0151', 'Adults 25-54')
+    audience_segment_id | segment_code | segment_name | match_type | confidence
+    SEG-002 | A25-54 | Adults 25-54 | exact_alias | 1.0
+ok  SELECT * FROM inventory_rule_summary('SPT-0058222') ORDER BY avails DESC
+    rule | avails
+    evaluated | 498
+    daypart_lower_value | 479
+    rating_below_floor | 477
+    outside_makegood_window | 235
+    spot_length_mismatch | 148
+    already_aired | 107
+    avail_held | 60
+    commensurate | 8
+    already_booked | 5
+ok  SELECT avail_id, air_date, daypart, program_name, adjacency_tags, est_impressions, impress
+    avail_id | air_date | daypart | program_name | adjacency_tags | est_impressions | impression_equivalence
+    AVL-025122 | 2026-10-31 | Prime | College Football Primetime | ["sports","live"] | 64033 | 1.249
+    AVL-025928 | 2026-11-01 | Prime | NFL Overtime | ["sports","live"] | 71504 | 1.395
+    AVL-026683 | 2026-11-02 | Prime | Network Prime Drama | ["entertainment","drama"] | 65268 | 1.274
+    AVL-027449 | 2026-11-03 | Prime | Network Prime Comedy | ["entertainment","comedy","family"] | 61299 | 1.197
+    AVL-027451 | 2026-11-03 | Prime | Network Prime Comedy | ["entertainment","comedy","family"] | 59888 | 1.169
+    AVL-028215 | 2026-11-04 | Prime | Network Prime Drama | ["entertainment","drama"] | 62622 | 1.223
+    AVL-029002 | 2026-11-05 | Prime | Network Prime Comedy | ["entertainment","comedy","family"] | 60858 | 1.189
+    AVL-030493 | 2026-11-07 | Prime | College Football Primetime | ["sports","live"] | 62093 | 1.211
+ok  SELECT rank, avail_id, air_date, program_name, score, score_breakdown, reasons FROM commen
+    rank | avail_id | air_date | program_name | score | score_breakdown | reasons
+    1 | AVL-026683 | 2026-11-02 | Network Prime Drama | 0.5652 | {"impressions":"0.2636","genre":"0.097","competitive":"0.0","preference":"0.0","day_pref":"0.0","yield":"0.02","timeliness":"0.1846"} | ["delivers 127% of owed impressions","same genre as the preempted program (Entertainment)"]
+    2 | AVL-025122 | 2026-10-31 | College Football Primetime | 0.5339 | {"impressions":"0.2584","genre":"0.0","competitive":"0.0","preference":"0.0","day_pref":"0.0","yield":"0.017","timeliness":"0.2585"} | ["delivers 125% of owed impressions"]
+    3 | AVL-027449 | 2026-11-03 | Network Prime Comedy | 0.5112 | {"impressions":"0.2477","genre":"0.097","competitive":"0.0","preference":"0.0","day_pref":"0.0","yield":"0.0188","timeliness":"0.1477"} | ["delivers 120% of owed impressions","same genre as the preempted program (Entertainment)"]
+    4 | AVL-025928 | 2026-11-01 | NFL Overtime | 0.5098 | {"impressions":"0.269","genre":"0.0","competitive":"0.0","preference":"0.0","day_pref":"0.0","yield":"0.0192","timeliness":"0.2216"} | ["delivers 140% of owed impressions"]
+ok  SELECT rank, avail_id, air_date, program_name, score, reasons FROM commensurate_scorer('SP
+    rank | avail_id | air_date | program_name | score | reasons
+    1 | AVL-025122 | 2026-10-31 | College Football Primetime | 0.7339 | ["delivers 125% of owed impressions","fits advertiser preference: sports, live"]
+    2 | AVL-025928 | 2026-11-01 | NFL Overtime | 0.7098 | ["delivers 140% of owed impressions","fits advertiser preference: sports, live"]
+    3 | AVL-030493 | 2026-11-07 | College Football Primetime | 0.4676 | ["delivers 121% of owed impressions","fits advertiser preference: sports, live"]
+    4 | AVL-027449 | 2026-11-03 | Network Prime Comedy | 0.4112 | ["delivers 120% of owed impressions","same genre as the preempted program (Entertainment)","advertiser tends to reject: entertainment"]
+ok  SELECT * FROM shortfall_calculator('SPT-0058222', array('AVL-040016'))
+    spot_id | order_id | segment_code | owed_impressions | proposed_impressions | spot_gap_impressions | spot_coverage_pct | revenue_at_risk_usd | order_other_unresolved_spots | order_owed_impressions_after | order_pacing_index | owed_value_usd | proposed_value_usd | value_gap_usd | value_ratio | dollar_match | partial_refund_usd | dollar_basis | dollar_label
+    SPT-0058222 | ORD-02001 | A25-54 | 51240 | 18923 | 32317 | 0.369 | 1566.0 | 1 | 83557 | 0.774 | 1566.0 | 302.0 | 1264.0 | 0.193 | false | 1264.0 | rate_card | worth $1,264 less than the missed spot’s $1,566
+ok  SELECT is_commensurate('SPT-0058222', avail_id) r, avail_id FROM (SELECT avail_id FROM eva
+    r | avail_id
+    {"is_commensurate":"false","failed_rules":["daypart_lower_value","rating_below_floor","outside_makegood_window"]} | AVL-038949
+    {"is_commensurate":"false","failed_rules":["daypart_lower_value","rating_below_floor","spot_length_mismatch","outside_makegood_window"]} | AVL-038948
+    {"is_commensurate":"false","failed_rules":["daypart_lower_value","rating_below_floor","outside_makegood_window"]} | AVL-038947
+EXIT 0

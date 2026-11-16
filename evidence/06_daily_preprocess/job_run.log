@@ -1,0 +1,12 @@
+Run URL: https://<workspace-host>/jobs/750133552370381/runs/1095573940427583?o=<workspace-id>
+
+2026-11-15 18:08:14 "makegoods_daily_preprocess" RUNNING
+2026-11-15 18:17:36 "makegoods_daily_preprocess" TERMINATED SUCCESS
+Output:
+=======
+Task prepare_options:
+
+=======
+Task send_digests:
+
+EXIT 0

@@ -1,0 +1,57 @@
+### production scorers (notebooks/04_production_monitoring.py) on the app traces of the last hour
+31 app traces
+
+scorer                       scored   pass
+grounded_ids                      5   100%
+dollar_math                       8   100%
+option_a_meets_all_rules          5     0%
+option_a_dollars_match            5    40%
+token_budget                      5   100%
+seller_took_recommendation        5   100%
+offer_grounded                    5   100%
+manager_approved                  5   100%
+reply_read_confident              6   100%
+seller_confirmed_reading          5   100%
+guardrails_passed                10   100%
+response_time                    31    97%
+business_rationale                5   100%
+offer_email_quality               5   100%
+
+  grounded_ids               pass:
+  grounded_ids               pass:
+  dollar_math                pass:
+  dollar_math                pass:
+  option_a_meets_all_rules   fail: Option A passes 9/11 rules
+  option_a_meets_all_rules   fail: Option A passes 8/11 rules
+  option_a_dollars_match     fail:
+  option_a_dollars_match     fail:
+  token_budget               pass: 1,755 tokens (6.3% of the GPT-assist median 27,928)
+  token_budget               pass: 1,786 tokens (6.4% of the GPT-assist median 27,928)
+  seller_took_recommendation pass: seller chose offer Option A
+  seller_took_recommendation pass: seller chose offer Option A
+  offer_grounded             pass:
+  offer_grounded             pass:
+  manager_approved           pass: manager chose approve
+  manager_approved           pass: manager chose approve
+  reply_read_confident       pass: read as question  at 0.9 by ai_functions
+  reply_read_confident       pass: read as counter  at 0.9 by ai_functions
+  seller_confirmed_reading   pass: read as counter, seller chose counter
+  seller_confirmed_reading   pass: read as decline, seller chose refund
+  guardrails_passed          pass: passed: offer_facts
+  guardrails_passed          pass: passed: avail_ids, dollar_figures
+  response_time              pass: 14.6s (budget 30s)
+  response_time              pass: 0.1s (budget 30s)
+  business_rationale         pass: The response explains the recommendation in plain business/ad-ops language and provides multiple concrete business reasons: Option A delivers 25,898 i
+  business_rationale         pass: The response explains the recommendation in plain business language suitable for an ad-ops reviewer. It gives concrete business reasons for why Option
+  offer_email_quality        pass: The email is a warm, brief, professional note from a TV station seller to a client's media buyer, which satisfies the first guideline. It explains tha
+  offer_email_quality        pass: The email is a warm, brief, professional note from a TV station seller to a client's media buyer, which is in compliance with the first guideline. It
+
+### python eval/production_report.py --days 1
+31 app requests in the last 1 days: await_client 6, confirm_send 5, manager_review 5, make_good_review 5, new request 5, seller_confirm 5
+
+scorer                       day         scored   pass
+
+Decisions logged by people on the recommendations:
+  client_decision      question 1, counter 1, decline 1, accept 1
+  manager_decision     approve 4
+  reviewer_decision    offer 4, refund 1, accept 1
