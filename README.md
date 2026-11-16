@@ -28,6 +28,9 @@ SQL checks of the rules engine, the registration notebook with its evaluation an
 production monitoring, the app deployment, four make-goods run end to end through the deployed app, and the agent's
 actual recommendations, emails and reply readings.
 
+[`docs/how_it_was_built.md`](docs/how_it_was_built.md) is the account of the build: the workflow, the AI tools used, and
+the judgment calls made along the way.
+
 ### v2: the full make-good lifecycle, per-user access
 The `v2` bundle target (branch `feature/v2-lifecycle`) adds, in its own schema, app and Lakebase branch:
 - **Dollars that match:** each option's value against the missed spot, with any partial refund owed.
