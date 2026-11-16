@@ -1,0 +1,1229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Make-Goods Agent</title>
+<script>
+  (function () {
+    var saved = localStorage.getItem("mg-theme");
+    var dark = saved ? saved === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+    document.documentElement.dataset.theme = dark ? "dark" : "light";
+  })();
+</script>
+<style>
+  /* ---- theme tokens: light is the default, dark is selected (its own steps, not an automatic flip) ---- */
+  :root {
+    color-scheme: light;
+    --bg: #f6f7f9; --panel: #ffffff; --panel-2: #fafbfc; --ink: #1b1f24; --muted: #5f6b7a; --faint: #898781;
+    --line: #e3e7ec; --line-strong: #b8c2cf; --grid: #e1e0d9; --axis: #c3c2b7;
+    --accent: #1f6feb; --accent-soft: #e8f0fe; --on-accent: #ffffff;
+    --ok: #1a7f37; --ok-soft: #e6f4ea; --warn: #9a6700; --warn-soft: #fff4d6; --bad: #c4291c; --bad-soft: #fde8e6;
+    --header-bg: #0f1b2d; --header-sub: #a9b6c8; --chip-bg: #1d2c44; --chip-ink: #d7e1ef; --link: #8ab4ff;
+    --msg-agent: #f3f5f8; --review-bg: #f6fbf7; --review-line: #b7dfc2; --llm-dot: #8250df; --spin-track: #c6d4e6;
+    --tip-bg: #ffffff; --tip-shadow: 0 4px 16px rgba(11, 11, 11, 0.12);
+    /* chart palette (validated: categorical light, status, sequential) */
+    --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4;
+    --seq: #2a78d6; --dim: #d5d4cd; --critical: #d03b3b; --band: rgba(42, 120, 214, 0.07);
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #0d0d0d; --panel: #1a1a19; --panel-2: #20201f; --ink: #f0efec; --muted: #c3c2b7; --faint: #898781;
+    --line: #2c2c2a; --line-strong: #4a4a46; --grid: #2c2c2a; --axis: #383835;
+    --accent: #3987e5; --accent-soft: rgba(57, 135, 229, 0.18); --on-accent: #ffffff;
+    --ok: #0ca30c; --ok-soft: rgba(12, 163, 12, 0.16); --warn: #fab219; --warn-soft: rgba(250, 178, 25, 0.14);
+    --bad: #e66767; --bad-soft: rgba(208, 59, 59, 0.2);
+    --header-bg: #121211; --header-sub: #9d9c95; --chip-bg: #262624; --chip-ink: #d8d7d0; --link: #8ab4ff;
+    --msg-agent: #232322; --review-bg: rgba(12, 163, 12, 0.08); --review-line: rgba(12, 163, 12, 0.38);
+    --llm-dot: #9085e9; --spin-track: #3a3a37;
+    --tip-bg: #262624; --tip-shadow: 0 4px 18px rgba(0, 0, 0, 0.5);
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181;
+    --seq: #3987e5; --dim: #3d3d3a; --critical: #e66767; --band: rgba(57, 135, 229, 0.10);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--ink); background: var(--bg); }
+  header { display: flex; align-items: center; gap: 16px; padding: 12px 20px; background: var(--header-bg); color: #fff; border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 17px; margin: 0; font-weight: 600; }
+  header .sub { color: var(--header-sub); font-size: 12.5px; }
+  header .chips { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  .chip { background: var(--chip-bg); color: var(--chip-ink); border-radius: 12px; padding: 3px 10px; font-size: 12px; white-space: nowrap; }
+  header a { color: var(--link); font-size: 12.5px; }
+  .theme-btn { background: var(--chip-bg); color: var(--chip-ink); border: 0; border-radius: 12px; padding: 3px 10px; font: inherit; font-size: 12px; cursor: pointer; }
+  main { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(400px, 1fr); gap: 16px; padding: 16px 20px; height: calc(100vh - 56px); }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; display: flex; flex-direction: column; min-height: 0; }
+  .tabs { display: flex; gap: 4px; padding: 8px 10px 0; border-bottom: 1px solid var(--line); }
+  .tab { padding: 8px 14px; border: 0; background: none; cursor: pointer; font-size: 14px; color: var(--muted); border-bottom: 2px solid transparent; }
+  .tab.active { color: var(--ink); border-color: var(--accent); font-weight: 600; }
+  .tab .count { background: var(--accent-soft); color: var(--accent); border-radius: 10px; padding: 0 7px; margin-left: 4px; font-size: 12px; }
+  .scroll { overflow: auto; flex: 1; min-height: 0; }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; padding: 12px; }
+  .kpis.four { grid-template-columns: repeat(2, 1fr); }  /* overview: 2 x 2, or one row on wide screens */
+  @media (min-width: 1500px) { .kpis.four { grid-template-columns: repeat(4, 1fr); } }
+  .kpi { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  .kpi .v { font-size: 22px; font-weight: 650; }
+  .kpi .l { color: var(--muted); font-size: 12px; }
+  .kpi .d { color: var(--faint); font-size: 11.5px; margin-top: 2px; }
+  .toolbar { display: flex; gap: 8px; align-items: center; padding: 0 12px 8px; color: var(--muted); font-size: 12.5px; }
+  select, input[type=text], textarea { font: inherit; border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; background: var(--panel); color: var(--ink); }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th { text-align: left; font-weight: 600; color: var(--muted); font-size: 12px; position: sticky; top: 0; background: var(--panel-2); }
+  th, td { padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  td.nw, th.nw { white-space: nowrap; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr.sel { background: var(--accent-soft); }
+  .pill { display: inline-block; border-radius: 10px; padding: 1px 8px; font-size: 12px; white-space: nowrap; }
+  .p-bad { background: var(--bad-soft); color: var(--bad); } .p-warn { background: var(--warn-soft); color: var(--warn); }
+  .p-ok { background: var(--ok-soft); color: var(--ok); } .p-info { background: var(--accent-soft); color: var(--accent); }
+  button.btn { font: inherit; font-size: 13px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+  button.btn:hover { border-color: var(--line-strong); }
+  button.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+  button.ok { background: var(--ok); color: #fff; border-color: var(--ok); }
+  button.danger { color: var(--bad); }
+  button:disabled { opacity: .5; cursor: default; }
+  a { color: var(--accent); }
+  .empty, .loading, .error { padding: 28px; text-align: center; color: var(--muted); }
+  .error { color: var(--bad); }
+  .card { border: 1px solid var(--line); border-radius: 8px; margin: 12px; padding: 12px; }
+  .card h3 { margin: 0 0 4px; font-size: 14.5px; }
+  .meta { color: var(--muted); font-size: 12.5px; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+  /* overview charts */
+  .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 12px; padding: 0 12px 12px; }
+  .chart-card { border: 1px solid var(--line); border-radius: 8px; padding: 12px 12px 8px; min-width: 0; }
+  .chart-card.wide { grid-column: 1 / -1; }
+  .chart-card .hd { display: flex; align-items: flex-start; gap: 8px; }
+  .chart-card h4 { margin: 0; font-size: 14px; font-weight: 600; }
+  .chart-card .take { color: var(--muted); font-size: 12.5px; margin: 2px 0 8px; }
+  .chart-card .hd button { margin-left: auto; font-size: 12px; padding: 2px 8px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .legend .key { display: inline-flex; align-items: center; gap: 6px; }
+  .legend .sw { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+  .chart { width: 100%; position: relative; }
+  .chart svg { display: block; width: 100%; overflow: visible; }
+  .chart text { font-size: 11.5px; fill: var(--muted); }
+  .chart text.ink { fill: var(--ink); }
+  .chart .hit { fill: transparent; cursor: default; }
+  .chart .hit:hover + .mark, .chart g.col:hover .mark { opacity: .85; }
+  .chart-table { margin-top: 6px; max-height: 260px; overflow: auto; }
+  .chart-table table { font-size: 12px; }
+  .viz-source { color: var(--faint); font-size: 11px; margin-top: 4px; }
+  #tip { position: fixed; z-index: 50; pointer-events: none; background: var(--tip-bg); color: var(--ink); border: 1px solid var(--line);
+         border-radius: 8px; padding: 8px 10px; font-size: 12px; box-shadow: var(--tip-shadow); min-width: 140px; display: none; }
+  #tip .tt { font-weight: 600; margin-bottom: 4px; }
+  #tip .row { display: flex; align-items: center; gap: 8px; }
+  #tip .row b { margin-left: auto; padding-left: 12px; font-variant-numeric: tabular-nums; }
+  #tip .lk { width: 12px; height: 2px; border-radius: 1px; display: inline-block; }
+  /* agent panel */
+  .agent-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  .agent-head b { font-size: 14.5px; }
+  .agent-head .meta { margin-left: auto; }
+  .transcript { padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+  .msg { border-radius: 10px; padding: 9px 12px; max-width: 100%; overflow-x: auto; }
+  .msg.user { align-self: flex-end; background: var(--accent-soft); max-width: 85%; }
+  .msg.agent { background: var(--msg-agent); }
+  .msg table { margin-top: 8px; font-size: 12px; background: var(--panel); width: max-content; max-width: none; }
+  .msg td, .msg th { white-space: nowrap; }
+  .msg td:last-child { white-space: normal; min-width: 280px; max-width: 420px; }
+  .msg p { margin: 0 0 6px; }
+  .msg pre.sql { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; margin: 8px 0 2px;
+                 font: 11.5px/1.45 ui-monospace, Menlo, monospace; color: var(--muted); white-space: pre-wrap; overflow-x: auto; }
+  .msg details summary { cursor: pointer; color: var(--muted); font-size: 12px; margin-top: 6px; }
+  .genie-badge { display: inline-block; border-radius: 10px; padding: 0 8px; font-size: 11.5px; background: var(--accent-soft); color: var(--accent); }
+  .trail { border-left: 2px solid var(--line); margin: 2px 0 0 6px; padding-left: 12px; }
+  .step { position: relative; padding: 3px 0 6px; font-size: 12.5px; }
+  .step::before { content: ""; position: absolute; left: -18px; top: 8px; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); }
+  .step.llm::before { background: var(--llm-dot); } .step.review::before { background: var(--ok); }
+  .step .t { font-weight: 600; }
+  .step .d { color: var(--muted); }
+  .runmeta { display: flex; gap: 10px; align-items: center; font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .composer { border-top: 1px solid var(--line); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+  .composer .row { display: flex; gap: 8px; }
+  .composer input { flex: 1; }
+  .suggest { display: flex; gap: 6px; flex-wrap: wrap; }
+  .suggest button { font-size: 12px; padding: 3px 8px; border-radius: 12px; }
+  .reviewbox { border: 1px solid var(--review-line); background: var(--review-bg); border-radius: 8px; padding: 10px; }
+  .reviewbox label { display: block; font-size: 12.5px; padding: 2px 0; cursor: pointer; }
+  .match { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .match b { font-size: 13px; }
+  .match .bar { width: 44px; height: 6px; border-radius: 3px; background: var(--grid); overflow: hidden; display: inline-block; }
+  .match .bar i { display: block; height: 100%; border-radius: 3px; background: var(--seq); }
+  .tier { display: inline-block; border-radius: 10px; padding: 0 7px; font-size: 11.5px; white-space: nowrap; }
+  .tier.commensurate { background: var(--ok-soft); color: var(--ok); }
+  .tier.near_miss { background: var(--warn-soft); color: var(--warn); }
+  .tier.poor_fit { background: var(--bad-soft); color: var(--bad); }
+  .misses { color: var(--warn); font-size: 12px; margin-top: 2px; }
+  .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--spin-track); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -2px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+  /* v2: roles, grouped queue, packages, lifecycle */
+  .role-chip { background: var(--accent); color: var(--on-accent); }
+  body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+  main { flex: 1; min-height: 0; height: auto; }
+  .group-h { display: flex; gap: 10px; align-items: baseline; padding: 10px 12px 4px; font-weight: 650; font-size: 13.5px; }
+  .group-h .meta { font-weight: 400; }
+  .station-h { padding: 6px 12px 2px 22px; color: var(--muted); font-size: 12.5px; font-weight: 600; }
+  .qhead, .qrow { display: grid; grid-template-columns: 100px minmax(120px, 1.1fr) 112px 70px 150px minmax(130px, 1.1fr) 100px; gap: 10px; }
+  .qrow > div { min-width: 0; }
+  .qrow .clip { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .qrow .meter { min-width: 0; }
+  .qhead { padding: 6px 12px 6px 22px; color: var(--muted); font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em;
+           border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--panel); z-index: 1; }
+  .qhead .num { text-align: right; }
+  .qrow .act .btn { width: 100%; white-space: nowrap; padding-left: 4px; padding-right: 4px; }
+  .qrow {
+          align-items: center; padding: 7px 12px 7px 22px; border-bottom: 1px solid var(--line); cursor: pointer; font-size: 13px; }
+  .qrow:hover { background: var(--panel-2); }
+  .qrow.open { background: var(--accent-soft); }
+  .qrow .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .brief { padding: 10px 12px 12px 22px; border-bottom: 1px solid var(--line); background: var(--panel-2); display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; font-size: 12.5px; }
+  .brief h5 { margin: 0 0 4px; font-size: 12.5px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .02em; }
+  .brief .kv { display: grid; grid-template-columns: max-content 1fr; gap: 2px 10px; }
+  .brief .kv span:nth-child(odd) { color: var(--muted); }
+  .stage { display: inline-block; border-radius: 10px; padding: 0 8px; font-size: 11.5px; white-space: nowrap; background: var(--accent-soft); color: var(--accent); }
+  .stage.awaiting_manager, .stage.client_replied { background: var(--warn-soft); color: var(--warn); }
+  .stage.sent { background: var(--ok-soft); color: var(--ok); }
+  .pkgs { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 8px; margin: 8px 0; }
+  .pkg { border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; background: var(--panel); font-size: 12.5px; }
+  .pkg.full { border-color: var(--review-line); }
+  .pkg .ph { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .pkg .ph b { font-size: 14px; }
+  .pkg .ph label { margin-left: auto; font-size: 12px; color: var(--muted); display: flex; gap: 4px; align-items: center; }
+  .pkg .line { padding: 2px 0; }
+  .pkg .dollar { margin-top: 4px; }
+  .pkg .dollar.bad { color: var(--bad); } .pkg .dollar.ok { color: var(--ok); }
+  .checklist { list-style: none; padding: 0; margin: 4px 0 0; }
+  .checklist li { padding: 1px 0; }
+  .checklist li.no { color: var(--bad); }
+  .checklist .d { color: var(--muted); }
+  .pkg details summary { cursor: pointer; color: var(--muted); }
+  .lane { margin: 10px 12px; }
+  .lane h4 { margin: 0 0 6px; font-size: 13.5px; }
+  .ocard { border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; margin-bottom: 8px; background: var(--panel); font-size: 13px; }
+  .ocard .meta { margin-top: 2px; }
+  .email { white-space: pre-wrap; font: 12.5px/1.5 system-ui, sans-serif; background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; margin-top: 6px; max-height: 260px; overflow: auto; }
+  .rule { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--line); border-radius: 12px; padding: 1px 4px 1px 9px; margin: 2px 4px 2px 0; font-size: 12px; }
+  .rule button { border: 0; background: none; color: var(--muted); cursor: pointer; }
+  .form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; padding: 6px 12px; }
+  .note { color: var(--muted); font-size: 12px; padding: 0 12px; }
+  /* where a make-good is: 5 steps from at-risk (red) to made good (green) */
+  .meter { display: grid; grid-template-columns: repeat(5, 1fr); gap: 3px; min-width: 210px; }
+  .meter .seg { height: 6px; border-radius: 3px; background: var(--grid); }
+  .meter .lbl { font-size: 10.5px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .meter .lbl.on { color: var(--ink); font-weight: 600; }
+  .meter.wide { min-width: 0; margin: 4px 0 2px; }
+  .meter.wide .lbl { font-size: 11.5px; }
+  .chk { list-style: none; padding: 0; margin: 2px 0 8px; display: grid; grid-template-columns: 1fr 1fr; gap: 1px 10px; }
+  .chk li { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chk li.no { color: var(--bad); font-weight: 600; }
+  .pkg .facts { border-top: 1px solid var(--line); padding-top: 6px; }
+  .pkg.picked { outline: 2px solid var(--accent); }
+  .read { display: inline-block; border-radius: 10px; padding: 1px 9px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .read.yes { background: var(--ok-soft); color: var(--ok); } .read.no { background: var(--bad-soft); color: var(--bad); }
+  .read.more { background: var(--warn-soft); color: var(--warn); }
+  .identity { font: inherit; font-size: 12px; border-radius: 12px; padding: 3px 8px; background: var(--chip-bg); color: var(--chip-ink); border: 1px solid #2f4566; }
+  .section { margin: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); overflow: hidden; }
+  .section > .sh { display: flex; align-items: baseline; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  .section > .sh h4 { margin: 0; font-size: 14px; }
+  .section > .sh .n { font-weight: 700; border-radius: 10px; padding: 0 8px; font-size: 12px; color: #fff; }
+  .section > .sh .meta { margin-left: 4px; }
+  .section > .sb { padding: 10px; display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 10px; }
+  .section > .sb .meta.empty-row { padding: 4px 6px; }
+  .ocard { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin: 0; }
+  .ocard .top { display: flex; align-items: baseline; gap: 8px; }
+  .ocard .top .meta { margin-left: auto; }
+  .thread { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; margin: 12px; overflow: hidden; }
+  .thread .th { display: flex; gap: 10px; align-items: baseline; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  .thread .th .meta { margin-left: auto; }
+  .thread .tb { padding: 10px 14px; display: grid; gap: 8px; }
+  .thread .rec { padding: 10px 14px; background: var(--review-bg); border-top: 1px solid var(--review-line); display: grid; gap: 8px; }
+  .thread .rec .rb { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .thread .rec .rb .push { margin-left: auto; }
+  .bubble { border-radius: 8px; padding: 8px 10px; font-size: 13px; white-space: pre-wrap; }
+  .bubble.out { background: var(--panel-2); border: 1px solid var(--line); max-height: 140px; overflow: auto; }
+  .bubble.in { background: var(--accent-soft); }
+  .section > .sb.rows { display: block; padding: 0; }
+  .section > .sb.rows table { margin: 0; }
+  .ocard .facts { margin-top: 6px; display: grid; gap: 2px; font-size: 12.5px; }
+  .ocard .actions { margin-top: 8px; }
+  .inbox { display: grid; grid-template-columns: minmax(250px, 0.85fr) minmax(0, 1.6fr); gap: 12px; padding: 12px; align-items: start; }
+  .tlist { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--panel); }
+  .tlist .tl-h { padding: 8px 12px; font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: var(--muted);
+                 background: var(--panel-2); border-bottom: 1px solid var(--line); }
+  .titem { padding: 9px 12px; border-bottom: 1px solid var(--line); cursor: pointer; display: grid; gap: 3px; font-size: 13px; border-left: 3px solid transparent; }
+  .titem:hover { background: var(--panel-2); }
+  .titem.on { background: var(--accent-soft); border-left-color: var(--accent); }
+  .titem .r1 { display: flex; gap: 6px; align-items: baseline; }
+  .titem .r1 b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .titem .r1 .meta { margin-left: auto; white-space: nowrap; flex-shrink: 0; }
+  .titem .snip { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .thread { margin: 0; }
+  .thread .rec .btn.primary, .thread .rec .btn.ok { font-weight: 600; }
+  .thread .rec input { flex: 1; min-width: 180px; }
+  .readline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12.5px; margin-top: 4px; }
+</style>
+</head>
+<body>
+<div id="tip" role="tooltip"></div>
+<header>
+  <div>
+    <h1 id="app-title">Make-Goods</h1>
+    <div class="sub">Replace preempted and missed spots with commensurate inventory, from the first option to the client's yes</div>
+  </div>
+  <div class="chips">
+    <span class="chip" id="asof">As of …</span>
+    <span class="chip role-chip" id="role">…</span>
+    <select class="identity" id="identity" hidden title="See the app as"></select>
+    <span class="chip" id="user">…</span>
+    <button class="theme-btn" id="theme" title="Switch light / dark mode" aria-label="Switch light / dark mode">◐ Dark</button>
+  </div>
+</header>
+<main>
+  <section class="panel">
+    <div class="tabs" id="tabs">
+      <button class="tab active" data-tab="overview">Overview</button>
+      <button class="tab" data-tab="queue">My make-goods <span class="count" id="c-queue">–</span></button>
+      <button class="tab" data-tab="offers">Offers <span class="count" id="c-offers">–</span></button>
+      <button class="tab" data-tab="clients">Clients</button>
+      <button class="tab" data-tab="results">Results</button>
+      <button class="tab" data-tab="inbox" id="tab-inbox" title="Client replies, read automatically">Client inbox</button>
+    </div>
+    <div class="scroll" id="tab-body"><div class="loading"><span class="spinner"></span> Loading…</div></div>
+  </section>
+  <section class="panel">
+    <div class="agent-head"><b>Agent</b><span class="meta" id="thread">New conversation</span>
+      <button class="btn" id="newthread" title="Start a new conversation">New</button></div>
+    <div class="scroll"><div class="transcript" id="transcript">
+      <div class="empty">Pick a spot in <b>My make-goods</b> and click <b>Find options</b>, or ask a question below.<br>
+        You can also tell the agent a client's preference, e.g. <i>"Ironwood never wants Network Prime Drama"</i>.</div>
+    </div></div>
+    <div class="composer">
+      <div class="suggest">
+        <button class="btn" data-q="Which markets have the most make-good revenue at risk right now?">Revenue at risk by market</button>
+        <button class="btn" data-q="What are the most urgent make-goods in Nashville?">Urgent in Nashville</button>
+        <button class="btn" data-q="Avoid news adjacency">Refine: avoid news</button>
+      </div>
+      <div class="row"><input type="text" id="input" placeholder="e.g. SPT-0058222 was preempted by the football overrun — find a make-good">
+        <button class="btn primary" id="send">Send</button></div>
+    </div>
+  </section>
+</main>
+<script>
+const $ = (s) => document.querySelector(s);
+const fmt$ = (v) => v == null ? "" : "$" + Math.round(v).toLocaleString();
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+function md(text) {  // minimal markdown: paragraphs, **bold**, _italic_, pipe tables, ```sql fences
+  const out = []; let table = [], code = null;
+  const flush = () => {
+    if (!table.length) return;
+    const rows = table.filter((r) => !/^\|\s*-/.test(r)).map((r) => r.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim()));
+    out.push("<table><tr>" + rows[0].map((c) => `<th>${esc(c)}</th>`).join("") + "</tr>" +
+      rows.slice(1).map((r) => "<tr>" + r.map((c) => `<td>${esc(c)}</td>`).join("") + "</tr>").join("") + "</table>");
+    table = [];
+  };
+  for (const line of String(text).split("\n")) {
+    if (code !== null) {
+      if (line.trim().startsWith("```")) {
+        out.push(`<details><summary>How this was calculated</summary><pre class="sql">${esc(code.join("\n"))}</pre></details>`);
+        code = null;
+      } else code.push(line);
+      continue;
+    }
+    if (line.trim().startsWith("```")) { flush(); code = []; continue; }
+    if (line.trim().startsWith("|")) { table.push(line); continue; }
+    flush();
+    if (line.trim()) out.push("<p>" + esc(line).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/(^|\s)_(.+?)_(?=\s|$)/g, "$1<i>$2</i>") + "</p>");
+  }
+  flush();
+  if (code !== null) out.push(`<pre class="sql">${esc(code.join("\n"))}</pre>`);
+  return out.join("");
+}
+
+async function getJSON(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+  return r.json();
+}
+
+function matchBadge(o) {
+  if (o.match_score == null) return "";
+  const v = Math.round(Number(o.match_score));
+  return `<span class="match"><b>${v}</b>/10<span class="bar"><i style="width:${Math.max(0, Math.min(100, v * 10))}%"></i></span></span>`;
+}
+function tierBadge(o) {
+  if (!o.tier) return "";
+  if (o.tier === "commensurate") return `<span class="tier commensurate">✓ Commensurate</span>`;
+  if (o.tier === "near_miss") return `<span class="tier near_miss">≈ Near-miss</span>`;
+  return `<span class="tier poor_fit">✕ Low match</span>`;
+}
+function missesLine(o) {
+  return (o.misses || []).length ? `<div class="misses">≈ ${esc(o.misses.join("; "))}</div>` : "";
+}
+function outcomePill(outcome) {
+  if (outcome === "refund") return `<span class="pill p-bad">refund recommended</span>`;  // options may still be listed
+  if (outcome === "near_miss") return `<span class="pill p-warn">≈ near-miss · needs approval</span>`;
+  return `<span class="pill p-info">make-good recommended</span>`;
+}
+
+const OUTCOME_LABEL = { make_good: "make-good", make_good_exception: "make-good (exception)", near_miss: "near-miss", refund: "refund" };
+
+function decisionsTable(rows) {
+  if (!rows.length) return '<div class="meta" style="padding:10px 14px">No decisions yet.</div>';
+  return `<table><thead><tr><th>When</th><th>Spot</th><th>Action</th><th>Outcome</th><th>Recommended → final</th><th>Reviewer</th><th>Preference updates</th></tr></thead><tbody>
+    ${rows.map((d) => {
+      const pu = d.pref_updates || {};
+      const prefs = [...(pu.accepted || []).map((t) => "+" + t), ...(pu.rejected || []).map((t) => "−" + t)].join(" ");
+      const cls = d.outcome === "make_good" ? "p-ok" : d.outcome === "refund" ? "p-bad" : "p-warn";
+      const label = OUTCOME_LABEL[d.outcome] || d.outcome;
+      const final = (d.final_avail_ids || []).length ? d.final_avail_ids.join(" + ") : d.final_avail_id;
+      return `<tr><td>${new Date(d.decided_at).toLocaleString()}</td><td><b>${d.spot_id}</b></td><td>${esc(d.action)}</td>
+        <td><span class="pill ${cls}">${esc(label)}</span></td>
+        <td>${esc(d.recommended_avail_id || "–")} → ${final ? esc(final) : d.refund_usd ? "refund " + fmt$(d.refund_usd) : "–"}</td>
+        <td>${esc(d.reviewer)}</td><td class="meta">${esc(prefs)}</td></tr>`;
+    }).join("")}</tbody></table>`;
+}
+
+// ---------------------------------------------------------------- charts (plain SVG; colors come from theme tokens)
+const SVG = "http://www.w3.org/2000/svg";
+const tok = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const fmtK = (v) => Math.abs(v) >= 1e6 ? (v / 1e6).toFixed(1).replace(/\.0$/, "") + "M"
+  : Math.abs(v) >= 1e3 ? (v / 1e3).toFixed(1).replace(/\.0$/, "") + "K" : String(Math.round(v));
+const fmtUSDk = (v) => "$" + fmtK(v);
+const pct = (v) => Math.round(v * 100) + "%";
+const shortDate = (iso) => new Date(iso + "T12:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" });
+const longDate = (iso) => new Date(iso + "T12:00:00").toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+
+function svgEl(tag, attrs, parent) {
+  const e = document.createElementNS(SVG, tag);
+  for (const [k, v] of Object.entries(attrs || {})) e.setAttribute(k, v);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+function svgText(parent, x, y, str, attrs) { const t = svgEl("text", { x, y, ...attrs }, parent); t.textContent = str; return t; }
+function niceTicks(v) {  // clean axis: step 1/2/5 x 10^k, about 4 intervals, max rounded up to a step
+  const raw = Math.max(v, 1) / 4, p = 10 ** Math.floor(Math.log10(raw)), m = raw / p;
+  const step = (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * p, max = Math.ceil(Math.max(v, 1) / step) * step;
+  return { max, ticks: Array.from({ length: Math.round(max / step) + 1 }, (_, i) => i * step) };
+}
+// bar data-end rounded 4px, square at the baseline
+function hbarPath(x0, y, w, h, r = 4) { r = Math.min(r, w, h / 2);
+  return `M${x0},${y}H${x0 + w - r}Q${x0 + w},${y} ${x0 + w},${y + r}V${y + h - r}Q${x0 + w},${y + h} ${x0 + w - r},${y + h}H${x0}Z`; }
+function colPath(x, base, w, h, r = 4) { r = Math.min(r, h, w / 2);
+  return `M${x},${base}V${base - h + r}Q${x},${base - h} ${x + r},${base - h}H${x + w - r}Q${x + w},${base - h} ${x + w},${base - h + r}V${base}Z`; }
+
+const tipEl = document.getElementById("tip");
+function showTip(x, y, title, rows) {
+  tipEl.replaceChildren();
+  const t = document.createElement("div"); t.className = "tt"; t.textContent = title; tipEl.appendChild(t);
+  for (const r of rows) {
+    const row = document.createElement("div"); row.className = "row";
+    if (r.color) { const k = document.createElement("span"); k.className = "lk"; k.style.background = r.color; row.appendChild(k); }
+    const l = document.createElement("span"); l.textContent = r.label; row.appendChild(l);
+    const v = document.createElement("b"); v.textContent = r.value; row.appendChild(v);
+    tipEl.appendChild(row);
+  }
+  tipEl.style.display = "block"; placeTip(x, y);
+}
+function placeTip(x, y) {
+  const pad = 14, r = tipEl.getBoundingClientRect();
+  let px = x + pad, py = y + pad;
+  if (px + r.width > innerWidth - 8) px = x - r.width - pad;
+  if (py + r.height > innerHeight - 8) py = y - r.height - pad;
+  tipEl.style.left = px + "px"; tipEl.style.top = py + "px";
+}
+function hideTip() { tipEl.style.display = "none"; }
+function bindTip(node, title, rows) {  // the hit target (bigger than the mark) carries hover + keyboard focus
+  node.setAttribute("tabindex", "0");
+  node.addEventListener("mouseenter", (e) => showTip(e.clientX, e.clientY, title, rows()));
+  node.addEventListener("mousemove", (e) => placeTip(e.clientX, e.clientY));
+  node.addEventListener("mouseleave", hideTip);
+  node.addEventListener("focus", () => { const b = node.getBoundingClientRect(); showTip(b.left + b.width / 2, b.top, title, rows()); });
+  node.addEventListener("blur", hideTip);
+}
+
+function hbarChart(host, rows, o) {
+  const W = Math.max(host.clientWidth, 280), rowH = 26, bar = 14, H = rows.length * rowH + 6;
+  const x0 = o.labelWidth || 150, valW = 52, span = W - x0 - valW, max = Math.max(...rows.map(o.value), 1);
+  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, height: H, role: "img", "aria-label": o.aria });
+  rows.forEach((d, i) => {
+    const y = 3 + i * rowH, w = Math.max(2, (o.value(d) / max) * span), g = svgEl("g", {}, svg);
+    svgText(g, x0 - 8, y + rowH / 2 + 4, o.label(d), { "text-anchor": "end", class: "ink" });
+    svgEl("path", { d: hbarPath(x0, y + (rowH - bar) / 2, w, bar), fill: o.color(d), class: "mark" }, g);
+    svgText(g, x0 + w + 6, y + rowH / 2 + 4, o.fmt(o.value(d)), { class: "ink" });
+    bindTip(svgEl("rect", { x: 0, y, width: W, height: rowH, class: "hit" }, g), o.label(d), () => o.tip(d));
+  });
+  svgEl("line", { x1: x0, x2: x0, y1: 0, y2: H, stroke: tok("--axis"), "stroke-width": 1 }, svg);
+  host.replaceChildren(svg);
+}
+
+function stackedColumns(host, dates, series, cell, o) {
+  const W = Math.max(host.clientWidth, 320), H = 230, padL = 34, padR = 6, padT = 22, padB = 24;
+  const plotW = W - padL - padR, plotH = H - padT - padB, base = padT + plotH;
+  const totals = dates.map((d) => series.reduce((a, s) => a + cell(d, s.key), 0));
+  const { max, ticks } = niceTicks(Math.max(...totals)), band = plotW / dates.length, bw = Math.min(24, Math.max(3, band - 3));
+  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, height: H, role: "img", "aria-label": o.aria });
+  for (const a of o.bands || []) {  // annotated date ranges
+    const i0 = dates.indexOf(a.from), i1 = dates.indexOf(a.to);
+    if (i0 < 0 || i1 < 0) continue;
+    svgEl("rect", { x: padL + i0 * band, y: padT - 4, width: (i1 - i0 + 1) * band, height: plotH + 4, fill: tok("--band") }, svg);
+    svgText(svg, padL + i0 * band + 4, padT + 8, a.label, {});
+  }
+  for (const a of o.markers || []) {
+    const i = dates.indexOf(a.at);
+    if (i < 0) continue;
+    const x = padL + i * band;
+    svgEl("line", { x1: x, x2: x, y1: padT - 4, y2: base, stroke: tok("--axis"), "stroke-width": 1 }, svg);
+    svgText(svg, x + 4, padT - 8, a.label, {});
+  }
+  for (const v of ticks) {
+    const y = base - (v / max) * plotH;
+    svgEl("line", { x1: padL, x2: W - padR, y1: y, y2: y, stroke: v ? tok("--grid") : tok("--axis"), "stroke-width": 1 }, svg);
+    svgText(svg, padL - 6, y + 4, fmtK(v), { "text-anchor": "end" });
+  }
+  dates.forEach((d, i) => {
+    const g = svgEl("g", { class: "col" }, svg), x = padL + i * band + (band - bw) / 2;
+    let y = base;
+    const vals = series.map((s) => cell(d, s.key));
+    const topIdx = vals.reduce((t, v, j) => (v > 0 ? j : t), -1);
+    series.forEach((s, j) => {
+      const v = vals[j];
+      if (!v) return;
+      const h = (v / max) * plotH, gap = j === topIdx ? 0 : 2;  // 2px surface gap between stacked segments
+      const segH = Math.max(h - gap, 1);
+      if (j === topIdx) svgEl("path", { d: colPath(x, y, bw, segH), fill: tok(s.token), class: "mark" }, g);
+      else svgEl("rect", { x, y: y - segH, width: bw, height: segH, fill: tok(s.token), class: "mark" }, g);
+      y -= h;
+    });
+    if (i % 7 === 0) svgText(svg, padL + i * band + band / 2, H - 6, shortDate(d), { "text-anchor": "middle" });
+    bindTip(svgEl("rect", { x: padL + i * band, y: padT, width: band, height: plotH, class: "hit" }, g), longDate(d),
+      () => [...series.map((s, j) => ({ label: s.label, value: String(vals[j]), color: tok(s.token) })).filter((r) => r.value !== "0"),
+             { label: "Total", value: String(totals[i]) }]);
+  });
+  host.replaceChildren(svg);
+}
+
+function columnChart(host, rows, o) {
+  const W = Math.max(host.clientWidth, 280), H = 206, padL = 30, padR = 6, padT = 16, padB = 40;
+  const plotW = W - padL - padR, plotH = H - padT - padB, base = padT + plotH;
+  const { max, ticks } = niceTicks(Math.max(...rows.map(o.value), 1)), band = plotW / rows.length, bw = Math.min(24, band - 6);
+  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, height: H, role: "img", "aria-label": o.aria });
+  for (const v of ticks) {
+    const y = base - (v / max) * plotH;
+    svgEl("line", { x1: padL, x2: W - padR, y1: y, y2: y, stroke: v ? tok("--grid") : tok("--axis"), "stroke-width": 1 }, svg);
+    svgText(svg, padL - 6, y + 4, fmtK(v), { "text-anchor": "end" });
+  }
+  rows.forEach((d, i) => {
+    const g = svgEl("g", { class: "col" }, svg), x = padL + i * band + (band - bw) / 2, v = o.value(d), h = (v / max) * plotH;
+    if (v > 0) svgEl("path", { d: colPath(x, base, bw, Math.max(h, 1)), fill: o.color(d), class: "mark" }, g);
+    if (v > 0 && o.labelIf(d)) svgText(g, x + bw / 2, base - h - 5, String(v), { "text-anchor": "middle", class: "ink" });
+    svgText(svg, padL + i * band + band / 2, base + 16, o.xlabel(d), { "text-anchor": "middle" });
+    bindTip(svgEl("rect", { x: padL + i * band, y: padT, width: band, height: plotH, class: "hit" }, g), o.title(d), () => o.tip(d));
+  });
+  svgText(svg, padL + plotW / 2, H - 4, o.axisLabel || "", { "text-anchor": "middle" });
+  host.replaceChildren(svg);
+}
+
+function chartTable(columns, rows) {
+  return `<table><tr>${columns.map((c) => `<th class="${c.num ? "num" : ""}">${esc(c.h)}</th>`).join("")}</tr>${rows.map((r) =>
+    `<tr>${columns.map((c) => `<td class="${c.num ? "num" : ""}">${esc(c.v(r))}</td>`).join("")}</tr>`).join("")}</table>`;
+}
+
+function chartCard(id, title, take, { wide = false, legend = "", source = "" } = {}) {
+  return `<div class="chart-card ${wide ? "wide" : ""}" id="${id}">
+    <div class="hd"><div><h4>${esc(title)}</h4><div class="take">${esc(take)}</div></div>
+      <button class="btn" data-table="${id}" aria-expanded="false">Table</button></div>
+    ${legend}<div class="chart"></div><div class="chart-table" hidden></div><div class="viz-source">${esc(source)}</div></div>`;
+}
+
+const REASONS = [
+  { key: "Sports Overrun", label: "Sports overrun", token: "--s1" },
+  { key: "Political Priority", label: "Political priority", token: "--s2" },
+  { key: "Breaking News", label: "Breaking news", token: "--s3" },
+  { key: "Technical Failure", label: "Technical failure", token: "--s4" },
+  { key: "Other", label: "Other (network override, traffic error)", token: "--s5" },
+];
+const MATCHER = { manual: "Ad-ops expert", rules_engine: "Rules engine", gpt_assist: "Legacy AI assist" };
+
+async function renderOverview(body) {
+  INSIGHTS = INSIGHTS || await getJSON("/api/insights");
+  drawOverview(body, INSIGHTS);
+}
+
+function drawOverview(body, d) {
+  const k = d.kpis;
+  $("#c-queue").textContent = k.open_spots;
+  const dates = [...new Set(d.preemptions.map((r) => r.date))].sort();
+  const grid = {};
+  for (const r of d.preemptions) (grid[r.date] = grid[r.date] || {})[r.reason] = r.spots;
+  const cell = (dt, key) => (grid[dt] || {})[key] || 0;
+  const reasonTotals = REASONS.map((s) => ({ ...s, n: dates.reduce((a, dt) => a + cell(dt, s.key), 0) }));
+  const allPre = reasonTotals.reduce((a, r) => a + r.n, 0);
+  const topReason = [...reasonTotals].sort((a, b) => b.n - a.n)[0];
+  const mk = d.at_risk_by_market, ref = d.refunds_by_daypart, mt = d.acceptance_by_matcher;
+  const refTotal = ref.reduce((a, r) => a + r.refund_usd, 0), refTop = ref[0];
+  const dl = [];
+  const maxDay = Math.max(14, ...d.deadlines.map((r) => r.days_to_deadline));
+  for (let i = 1; i <= maxDay; i++) dl.push(d.deadlines.find((r) => r.days_to_deadline === i) || { days_to_deadline: i, spots: 0, revenue_at_risk_usd: 0 });
+  const due = dl.filter((r) => r.days_to_deadline <= 3), dueUsd = due.reduce((a, r) => a + r.revenue_at_risk_usd, 0);
+  const expert = mt.find((m) => m.matched_by === "manual"), legacy = mt.find((m) => m.matched_by === "gpt_assist");
+
+  body.innerHTML = `
+    <div class="kpis four">
+      <div class="kpi"><div class="l">Revenue at risk</div><div class="v">${fmt$(k.revenue_at_risk_usd)}</div><div class="d">refunded if not made good</div></div>
+      <div class="kpi"><div class="l">Open make-goods</div><div class="v">${k.open_spots}</div><div class="d">spots in the work queue</div></div>
+      <div class="kpi"><div class="l">Due within 3 days</div><div class="v" style="color:var(--critical)">⚠ ${k.due_3d}</div><div class="d">${fmt$(dueUsd)} at risk</div></div>
+      <div class="kpi"><div class="l">Refunded to date</div><div class="v">${fmt$(k.refunded_usd)}</div><div class="d">by the inherited make-good process</div></div>
+    </div>
+    <div class="charts">
+      ${chartCard("c-pre", "Why spots get preempted", `${topReason.label} is the top cause: ${topReason.n} of ${allPre} preempted or missed spots (${pct(topReason.n / allPre)}).`,
+        { wide: true, source: "Daily preempted and missed spots · as-run logs",
+          legend: `<div class="legend">${REASONS.map((s) => `<span class="key"><span class="sw" style="background:var(${s.token})"></span>${esc(s.label)}</span>`).join("")}</div>` })}
+      ${chartCard("c-mkt", "Revenue at risk by market", mk.length ? `${mk[0].market} leads with ${fmt$(mk[0].revenue_at_risk_usd)} across ${mk[0].open_spots} open spots.` : "No open spots.",
+        { source: "Top 10 markets · open work queue" })}
+      ${chartCard("c-dl", "Make-good deadlines", `${due.reduce((a, r) => a + r.spots, 0)} spots (${fmt$(dueUsd)}) must be made good within 3 days or refunded.`,
+        { source: "Open spots by days left · open work queue",
+          legend: `<div class="legend"><span class="key"><span class="sw" style="background:var(--critical)"></span>⚠ Due within 3 days</span><span class="key"><span class="sw" style="background:var(--dim)"></span>Later</span></div>` })}
+      ${chartCard("c-ref", "Where refunds come from", refTop ? `${refTop.daypart} drives ${pct(refTop.refund_usd / refTotal)} of refunds; ${refTop.downgrades} of its ${refTop.offers} offers were downgrades to a weaker daypart.` : "",
+        { source: "Refund $ by preempted daypart · make-good offer history",
+          legend: `<div class="legend"><span class="key"><span class="sw" style="background:var(--s2)"></span>${esc(refTop ? refTop.daypart : "")}</span><span class="key"><span class="sw" style="background:var(--dim)"></span>Other dayparts</span></div>` })}
+      ${chartCard("c-match", "How the old process's offers fared", expert && legacy ? `Ad-ops experts got ${pct(expert.accept_rate)} of offers accepted; the legacy AI assist got ${pct(legacy.accept_rate)}.` : "",
+        { source: "Acceptance rate by matching method · make-good offer history" })}
+    </div>`;
+
+  const host = (id) => body.querySelector(`#${id} .chart`);
+  stackedColumns(host("c-pre"), dates, REASONS, cell, {
+    aria: "Stacked columns of preempted spots per day by reason",
+    bands: [{ from: "2026-10-05", to: "2026-10-09", label: "Gulf hurricane week" }],
+    markers: [{ at: "2026-10-15", label: "Political windows open" }],
+  });
+  hbarChart(host("c-mkt"), mk, {
+    aria: "Revenue at risk by market", label: (r) => r.market, value: (r) => r.revenue_at_risk_usd, fmt: fmtUSDk,
+    color: () => tok("--seq"), tip: (r) => [{ label: "Revenue at risk", value: fmt$(r.revenue_at_risk_usd) }, { label: "Open spots", value: String(r.open_spots) }],
+  });
+  columnChart(host("c-dl"), dl, {
+    aria: "Open make-goods by days until deadline", value: (r) => r.spots, xlabel: (r) => String(r.days_to_deadline),
+    color: (r) => tok(r.days_to_deadline <= 3 ? "--critical" : "--dim"), labelIf: (r) => r.days_to_deadline <= 3,
+    title: (r) => `${r.days_to_deadline} day${r.days_to_deadline === 1 ? "" : "s"} left`, axisLabel: "days until the make-good deadline",
+    tip: (r) => [{ label: "Spots", value: String(r.spots) }, { label: "Revenue at risk", value: fmt$(r.revenue_at_risk_usd) }],
+  });
+  hbarChart(host("c-ref"), ref, {
+    aria: "Refunds by preempted daypart", label: (r) => r.daypart, value: (r) => r.refund_usd, fmt: fmtUSDk, labelWidth: 110,
+    color: (r) => tok(r === refTop ? "--s2" : "--dim"),
+    tip: (r) => [{ label: "Refunded", value: fmt$(r.refund_usd) }, { label: "Offers", value: String(r.offers) }, { label: "Downgrade offers", value: String(r.downgrades) }],
+  });
+  hbarChart(host("c-match"), mt, {
+    aria: "Offer acceptance rate by matching method", label: (r) => MATCHER[r.matched_by] || r.matched_by, value: (r) => r.accept_rate,
+    fmt: pct, labelWidth: 120, color: () => tok("--seq"),
+    tip: (r) => [{ label: "Accepted", value: pct(r.accept_rate) }, { label: "Offers", value: String(r.offers) },
+                 { label: "Refunded", value: fmt$(r.refund_usd) }, { label: "Downgrade offers", value: pct(r.downgrade_rate) }],
+  });
+
+  const tables = {
+    "c-pre": () => chartTable([{ h: "Date", v: (dt) => dt }, ...REASONS.map((s) => ({ h: s.label, v: (dt) => cell(dt, s.key), num: true })),
+                               { h: "Total", v: (dt) => REASONS.reduce((a, s) => a + cell(dt, s.key), 0), num: true }], dates),
+    "c-mkt": () => chartTable([{ h: "Market", v: (r) => r.market }, { h: "Revenue at risk", v: (r) => fmt$(r.revenue_at_risk_usd), num: true },
+                               { h: "Open spots", v: (r) => r.open_spots, num: true }], mk),
+    "c-dl": () => chartTable([{ h: "Days left", v: (r) => r.days_to_deadline, num: true }, { h: "Spots", v: (r) => r.spots, num: true },
+                              { h: "Revenue at risk", v: (r) => fmt$(r.revenue_at_risk_usd), num: true }], dl),
+    "c-ref": () => chartTable([{ h: "Daypart", v: (r) => r.daypart }, { h: "Refunded", v: (r) => fmt$(r.refund_usd), num: true },
+                               { h: "Offers", v: (r) => r.offers, num: true }, { h: "Downgrades", v: (r) => r.downgrades, num: true }], ref),
+    "c-match": () => chartTable([{ h: "Method", v: (r) => MATCHER[r.matched_by] || r.matched_by }, { h: "Accepted", v: (r) => pct(r.accept_rate), num: true },
+                                 { h: "Offers", v: (r) => r.offers, num: true }, { h: "Refunded", v: (r) => fmt$(r.refund_usd), num: true }], mt),
+  };
+  body.onclick = (e) => {
+    const id = e.target.dataset.table; if (!id) return;
+    const t = body.querySelector(`#${id} .chart-table`), open = t.hidden;
+    t.innerHTML = open ? tables[id]() : ""; t.hidden = !open;
+    e.target.setAttribute("aria-expanded", String(open)); e.target.textContent = open ? "Chart only" : "Table";
+  };
+}
+
+
+let CFG = {}, TAB = "overview", THREAD = null, BUSY = false, LAST = null, INSIGHTS = null, OPEN_SPOT = null;
+const ROLE = { seller: "Seller", manager: "Sales manager", admin: "Admin" };
+const STAGE = { recommended: "options ready", awaiting_manager: "with manager", approved: "approved, ready to send", returned: "returned by manager",
+  sent: "sent to client", client_replied: "client replied", closed: "closed", withdrawn: "withdrawn", countered: "client asked for changes",
+  replied: "client replied", booked: "booked", refunded: "refunded", drafted: "drafted" };
+const stagePill = (s) => s ? `<span class="stage ${esc(s)}">${esc(STAGE[s] || s)}</span>` : "";
+const STEPS = ["At-risk", "Find options", "Review and send", "Waiting for response", "Make-good"];
+const STEP_COLOR = ["#d03b3b", "#eb6834", "#e9a100", "#7fb93a", "#1a7f37"];  // red -> green
+function stepOf(stage) {
+  if (!stage) return 0;
+  if (["recommended", "countered", "withdrawn", "returned_to_seller"].includes(stage)) return 1;
+  if (["drafted", "awaiting_manager", "returned", "approved"].includes(stage)) return 2;
+  if (["sent", "client_replied", "replied"].includes(stage)) return 3;
+  if (["closed", "booked"].includes(stage)) return 4;
+  return 1;
+}
+function stageMeter(stage, wide) {
+  const n = stepOf(stage);
+  return `<div class="meter ${wide ? "wide" : ""}" title="${esc(STEPS[n])}${stage === "client_replied" || stage === "replied" ? ": the client replied" : ""}">
+    ${STEPS.map((_, i) => `<div class="seg" style="${i <= n ? `background:${STEP_COLOR[n]}` : ""}"></div>`).join("")}
+    ${wide ? STEPS.map((t, i) => `<div class="lbl ${i === n ? "on" : ""}">${esc(t)}</div>`).join("")
+           : `<div class="lbl on" style="grid-column:1 / -1;color:${STEP_COLOR[n]}">${n + 1}/5 ${esc(STEPS[n])}</div>`}</div>`;
+}
+const pct0 = (v) => v == null ? "" : Math.round(v * 100) + "%";
+
+async function postJSON(url, body, method = "POST") {
+  const r = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || `${r.status}`);
+  return r.json();
+}
+
+// ---------------------------------------------------------------- tabs
+async function render() {
+  const body = $("#tab-body");
+  body.innerHTML = '<div class="loading"><span class="spinner"></span> Loading…</div>';
+  body.onclick = null;
+  try {
+    const views = { overview: renderOverview, queue: renderQueue, offers: renderOffers, clients: renderClients, results: renderResults,
+                    inbox: renderInbox };
+    await views[TAB](body);
+  } catch (e) {
+    body.innerHTML = `<div class="error">Could not load: ${esc(e.message)}</div>`;
+  }
+}
+
+function deadlinePill(d) {
+  const cls = d <= 2 ? "p-bad" : d <= 5 ? "p-warn" : "p-info";
+  return `<span class="pill ${cls}">${d} day${d === 1 ? "" : "s"}</span>`;
+}
+const BUCKETS = [["Due in 1–2 days", (d) => d <= 2], ["Due in 3–5 days", (d) => d > 2 && d <= 5], ["Due in 6 or more days", (d) => d > 5]];
+
+async function renderQueue(body) {
+  const rows = await getJSON("/api/queue");
+  $("#c-queue").textContent = rows.length;
+  if (!rows.length) { body.innerHTML = '<div class="empty">No open make-goods for your clients. 🎉</div>'; return; }
+  const atRisk = rows.reduce((a, r) => a + (r.revenue_at_risk_usd || 0), 0);
+  const urgent = rows.filter((r) => r.days_to_deadline <= 2).length;
+  const markets = [...new Set(rows.map((r) => r.market))].sort();
+  body.innerHTML = `
+    <div class="kpis">
+      <div class="kpi"><div class="v">${rows.length}</div><div class="l">Spots needing a make-good</div></div>
+      <div class="kpi"><div class="v">${fmt$(atRisk)}</div><div class="l">Revenue at risk (refund if not made good)</div></div>
+      <div class="kpi"><div class="v" style="color:var(--bad)">${urgent}</div><div class="l">Due within 2 days</div></div>
+    </div>
+    <div class="toolbar">Market <select id="mkt"><option value="">All my markets</option>${markets.map((m) => `<option>${esc(m)}</option>`).join("")}</select>
+      <span>Grouped by deadline, then station · click a row for the spot brief</span></div>
+    <div class="qhead"><div>Spot · due</div><div>Client · seller</div><div>Missed spot</div><div class="num">At risk</div>
+      <div>Stage</div><div>Best option</div><div></div></div>
+    <div id="qgroups"></div>`;
+  const draw = () => {
+    const m = $("#mkt").value, sel = rows.filter((r) => !m || r.market === m);
+    $("#qgroups").innerHTML = BUCKETS.map(([label, test]) => {
+      const g = sel.filter((r) => test(r.days_to_deadline));
+      if (!g.length) return "";
+      const stations = [...new Set(g.map((r) => `${r.call_letters} · ${r.market}`))];
+      return `<div class="group-h">${label} <span class="meta">${g.length} spot${g.length === 1 ? "" : "s"} · ${fmt$(g.reduce((a, r) => a + (r.revenue_at_risk_usd || 0), 0))} at risk</span></div>` +
+        stations.map((st) => `<div class="station-h">${esc(st)}</div>` + g.filter((r) => `${r.call_letters} · ${r.market}` === st).map(queueRow).join("")).join("");
+    }).join("");
+  };
+  $("#mkt").onchange = draw; draw();
+  body.onclick = async (e) => {
+    const f = e.target.closest("[data-find]");
+    if (f) { e.stopPropagation(); return f.dataset.thread ? openThread(f.dataset.thread, f.dataset.find) : findMakeGood(f.dataset.find); }
+    const row = e.target.closest(".qrow"); if (!row) return;
+    const next = row.nextElementSibling;
+    if (next && next.classList.contains("brief")) { next.remove(); row.classList.remove("open"); return; }
+    row.classList.add("open");
+    const b = document.createElement("div"); b.className = "brief"; b.innerHTML = '<span class="spinner"></span>';
+    row.after(b);
+    try { b.innerHTML = briefHTML(await getJSON(`/api/spots/${row.dataset.spot}/brief`)); } catch (err) { b.innerHTML = `<span class="error">${esc(err.message)}</span>`; }
+  };
+}
+
+function queueRow(r) {
+  const best = r.best_option
+    ? `<div class="clip">Option ${esc(r.best_option)} · ${r.best_rules_passed}/${r.best_rules_total} rules</div>
+       <div class="clip meta" style="color:var(${r.best_dollar_match ? "--ok" : "--bad"})" title="${esc(r.best_dollar_label || "")}">${r.best_dollar_match ? "✓ Value matches" : "✕ Value is off"}</div>`
+    : `<div class="meta" title="${r.thread_id ? "The options are in the conversation" : "Options are prepared each morning; Find options builds them now"}">${r.thread_id ? "in the conversation" : "–"}</div>`;
+  return `<div class="qrow" data-spot="${r.spot_id}">
+    <div><b>${r.spot_id}</b><div class="meta">${deadlinePill(r.days_to_deadline)}</div></div>
+    <div><div class="clip">${esc(r.advertiser_name)}</div><div class="meta clip">${esc(r.seller_name || "")}${r.segment_code ? " · " + esc(r.segment_code) : ""}</div></div>
+    <div><div class="clip">${esc(r.daypart)} ${esc(String(r.broadcast_date).slice(5))}</div><div class="meta clip">${esc(r.preemption_reason)}</div></div>
+    <div class="num">${fmt$(r.revenue_at_risk_usd)}</div>
+    <div>${stageMeter(r.stage)}</div>
+    <div>${best}</div>
+    <div class="act"><button class="btn ${r.thread_id ? "" : "primary"}" data-find="${r.spot_id}" ${r.thread_id ? `data-thread="${r.thread_id}"` : ""}>${r.thread_id ? "Open" : "Find options"}</button></div>
+  </div>`;
+}
+
+function briefHTML(b) {
+  const s = b.spot;
+  const rules = (b.client_rules || []).map((r) => `<span class="rule">${esc(r.label)}</span>`).join("") || '<span class="meta">none on file</span>';
+  const prefs = Object.entries(b.preference_evidence || {}).map(([t, ev]) => `${esc(t)}: accepted ${ev.accepts}, rejected ${ev.rejects}`).join("<br>") ||
+    '<span class="meta">no reviewer decisions yet</span>';
+  const offers = (b.recent_offers || []).map((o) => `${esc(String(o.offered_ts).slice(0, 10))} ${esc(o.offered_program || "")} (${esc(o.offered_daypart || "")}): ${esc(o.offer_status)}`).join("<br>") ||
+    '<span class="meta">no earlier offers</span>';
+  return `<div><h5>Missed spot</h5><div class="kv">
+      <span>Aired</span><span>no: ${esc(s.preemption_reason)}</span><span>Program</span><span>${esc(s.program_name)} · ${esc(s.daypart)} ${esc(String(s.broadcast_date))}</span>
+      <span>Value</span><span>${fmt$(s.unit_rate_usd)}</span><span>Owed</span><span>${(s.owed_impressions || 0).toLocaleString()} ${esc(s.audience_segment_text)} impressions</span>
+      <span>Deadline</span><span>${esc(String(s.makegood_deadline))}</span></div></div>
+    <div><h5>Contract</h5><div class="kv"><span>Campaign</span><span>${esc(s.campaign_name)}</span><span>Rating</span><span>${s.guaranteed_rating} guaranteed</span>
+      <span>Window</span><span>${s.makegood_window_days} days · flight ends ${esc(String(s.flight_end))}</span>
+      <span>Seller</span><span>${esc(s.seller_name || "")}</span><span>Client</span><span>${esc(s.contact_name || "")}</span></div></div>
+    <div><h5>Client rules</h5>${rules}<h5 style="margin-top:8px">Learned from decisions</h5>${prefs}</div>
+    <div><h5>Recent offers to this client</h5>${offers}</div>`;
+}
+
+// ---------------------------------------------------------------- offers board
+const ago = (t) => {
+  if (!t) return "";
+  const m = Math.round((Date.now() - new Date(t)) / 60000);
+  return m < 1 ? "just now" : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+};
+const READ_OF = { accept: "yes", decline: "no", counter: "needs more information", question: "needs more information", unclear: "needs more information" };
+function section(title, color, items, hint = "", cls = "") {
+  return `<div class="section" style="border-left:4px solid ${color}">
+    <div class="sh"><h4>${title}</h4><span class="n" style="background:${color}">${items.length}</span>${hint ? `<span class="meta">${hint}</span>` : ""}</div>
+    <div class="sb ${cls}">${items.join("") || '<div class="meta empty-row">Nothing here right now.</div>'}</div></div>`;
+}
+
+async function renderOffers(body) {
+  const [reviews, offers, approvals] = await Promise.all([getJSON("/api/reviews"), getJSON("/api/offers"), getJSON("/api/approvals")]);
+  const card = (o, facts = [], primary = "Open") => `<div class="ocard">
+      <div class="top"><b>${esc(o.advertiser_name)}</b><span class="meta">${esc(o.spot_id)}</span>
+        <span class="meta">${ago(o.updated_at || o.created_at)}</span></div>
+      <div style="margin-top:6px">${stageMeter(o.status || o.stage)}</div>
+      <div class="facts">${facts.filter(Boolean).map((f) => `<div>${f}</div>`).join("")}</div>
+      <div class="actions"><button class="btn ${primary === "Open" ? "" : "primary"}" data-open="${o.thread_id}" data-label="${esc(o.spot_id)}">${primary}</button></div></div>`;
+  const offered = (o) => (o.packages || []).length ? "Offered: " + o.packages.map((x) => "Option " + esc(x.package_label || x)).join(", ") : "";
+  const decide = reviews.filter((r) => ["recommended", "returned", "approved", "client_replied", null, undefined, ""].includes(r.stage));
+  const waitingMgr = CFG.role === "seller" ? offers.filter((o) => o.status === "awaiting_manager") : approvals;
+  const sent = offers.filter((o) => o.status === "sent"), replied = offers.filter((o) => o.status === "replied");
+  const closed = offers.filter((o) => ["booked", "refunded", "withdrawn", "countered"].includes(o.status)).slice(0, 12);
+  const mgr = ["manager", "admin"].includes(CFG.role);
+  $("#c-offers").textContent = decide.length + waitingMgr.length + sent.length + replied.length;
+  body.innerHTML = `<div class="toolbar" style="padding-top:12px"><button class="btn" id="poll">Check client replies now</button><span id="pollmsg"></span></div>` +
+    section("Needs your decision", STEP_COLOR[1], decide.map((r) => card(r, [`${outcomePill(r.outcome)} ${fmt$(r.revenue_at_risk_usd)} at risk`,
+      r.station ? esc(r.station) : ""], "Pick an option")), "pick the option to offer the client") +
+    section("Waiting for a sales manager's sign-off", STEP_COLOR[2], waitingMgr.map((o) => card(o, [esc(o.subject || ""), offered(o)],
+      mgr ? "Review and approve" : "Open")), mgr ? "you sign off before it is sent" : "your sales manager signs off before it is sent") +
+    section("Sent: waiting for the client", STEP_COLOR[3], sent.map((o) => card(o, [`To ${esc(o.contact_name || "")} · sent ${ago(o.sent_at)}`, offered(o)])),
+      "the offered avails are held for the client") +
+    section("Client replied", "var(--accent)", replied.map((o) => {
+      const r = o.reply || {};
+      return card(o, [`${readBadge({ intent: READ_OF[r.decision], option_label: (r.options || [])[0] })} ${pct0(r.confidence)} sure`,
+        r.evidence_quote ? `<span class="meta">“${esc(r.evidence_quote)}”</span>` : ""], "Confirm what to do");
+    }), "confirm the client's answer before anything is booked") +
+    section("Recently closed", STEP_COLOR[4], closed.map((o) => card(o, [stagePill(o.status), offered(o)])));
+  body.onclick = async (e) => {
+    const o = e.target.closest("[data-open]");
+    if (o) return openThread(o.dataset.open, o.dataset.label);
+    if (e.target.id === "poll") {
+      $("#pollmsg").textContent = "checking…";
+      const r = await postJSON("/api/mail/poll");
+      $("#pollmsg").textContent = `${r.picked_up.length} new repl${r.picked_up.length === 1 ? "y" : "ies"} on ${r.checked} open offer${r.checked === 1 ? "" : "s"}`;
+      if (r.picked_up.length) setTimeout(render, 600);
+    }
+  };
+}
+
+// ---------------------------------------------------------------- clients
+async function renderClients(body) {
+  const rows = await getJSON("/api/clients");
+  if (!rows.length) { body.innerHTML = '<div class="empty">No clients with open make-goods.</div>'; return; }
+  body.innerHTML = `<div class="note" style="padding-top:10px">Client rules come from what sellers tell the agent ("Ironwood never wants Network Prime Drama").
+      The rules engine applies them on every search for that client.</div>
+    <table><thead><tr><th>Client</th><th>Open</th><th class="num">At risk</th><th>Client rules</th><th>Learned from decisions</th></tr></thead><tbody>
+    ${rows.map((c) => `<tr><td><b>${esc(c.advertiser_name)}</b><div class="meta">${esc((c.markets || []).join(", "))} · ${esc(c.seller || "")}</div></td>
+      <td class="num">${c.open_spots}</td><td class="num">${fmt$(c.at_risk_usd)}</td>
+      <td>${(c.rules || []).map((r) => `<span class="rule" title="${esc(r.source_text || "")} (${esc(r.created_by || "")})">${esc(r.label)}
+          <button data-del="${r.rule_id}" data-adv="${c.advertiser_id}" title="Remove this rule">✕</button></span>`).join("") || '<span class="meta">none</span>'}
+        ${(c.suggested_rules || []).map((s) => `<div class="meta">Suggested: ${esc(s.label)} (${esc(s.evidence)})
+          <button class="btn" data-suggest="${esc(c.advertiser_name)}: ${esc(s.label)}">Save</button></div>`).join("")}</td>
+      <td class="meta">${Object.entries(c.preference_evidence || {}).map(([t, ev]) => `${esc(t)} +${ev.accepts} / −${ev.rejects}`).join(", ") || "–"}</td></tr>`).join("")}
+    </tbody></table>`;
+  body.onclick = async (e) => {
+    if (e.target.dataset.del) {
+      if (!confirm("Remove this client rule?")) return;
+      await postJSON(`/api/clients/${e.target.dataset.adv}/rules/${e.target.dataset.del}`, null, "DELETE");
+      render();
+    }
+    if (e.target.dataset.suggest) { newThread(); sendToAgent({ message: `For ${e.target.dataset.suggest}` }); }
+  };
+}
+
+// ---------------------------------------------------------------- results
+async function renderResults(body) {
+  const r = await getJSON("/api/metrics/business");
+  const t = r.total || {}, h = r.history || {};
+  const row = (x, key) => `<tr><td>${esc(x[key + "_name"] || x[key] || "–")}</td><td class="num">${x.decisions || 0}</td><td class="num">${fmt$(x.made_good_usd)}</td>
+      <td class="num">${fmt$(x.refunded_usd)}</td><td class="num">${pct0(x.recovery_rate)}</td><td class="num">${pct0(x.value_match)}</td>
+      <td class="num">${x.median_days ?? "–"}</td></tr>`;
+  const head = (k) => `<thead><tr><th>${k}</th><th class="num">Decisions</th><th class="num">Made good</th><th class="num">Refunded</th>
+      <th class="num">Recovery</th><th class="num">Value match</th><th class="num">Median days</th></tr></thead>`;
+  const funnel = r.offer_funnel || {};
+  const panel = (title, inner, hint = "") => `<div class="section"><div class="sh"><h4>${title}</h4>${hint ? `<span class="meta">${hint}</span>` : ""}</div>
+    <div class="sb rows">${inner}</div></div>`;
+  body.innerHTML = `<div class="kpis four">
+      <div class="kpi"><div class="l">Revenue kept by making good</div><div class="v">${fmt$(t.made_good_usd)}</div><div class="d">${t.decisions || 0} make-goods resolved here</div></div>
+      <div class="kpi"><div class="l">Refunded</div><div class="v">${fmt$(t.refunded_usd)}</div><div class="d">full refunds and value gaps</div></div>
+      <div class="kpi"><div class="l">Recovery rate</div><div class="v">${pct0(t.recovery_rate)}</div><div class="d">kept ÷ (kept + refunded)</div></div>
+      <div class="kpi"><div class="l">Dollars match</div><div class="v">${pct0(t.value_match)}</div><div class="d">booked value ÷ missed value · median ${t.median_days ?? "–"} days to resolve</div></div>
+    </div>
+    <div class="note">Before: the inherited process made ${(h.offers || 0).toLocaleString()} offers with ${pct0(h.accept_rate)} accepted and ${fmt$(h.refunded_usd)} refunded.</div>
+    ${panel("Offers in progress", `<div style="padding:10px 14px">${Object.entries(funnel).map(([k, v]) => `${stagePill(k)} ${v}`).join(" &nbsp; ") || '<span class="meta">none yet</span>'}</div>`)}
+    ${panel("By market", `<table>${head("Market")}<tbody>${(r.by_market || []).map((x) => row(x, "market")).join("")}</tbody></table>`)}
+    ${panel("By seller", `<table>${head("Seller")}<tbody>${(r.by_seller || []).map((x) => row(x, "seller_id")).join("")}</tbody></table>`)}
+    ${panel("Decision log", decisionsTable(r.decisions || []), `${(r.decisions || []).length} most recent · every booking and refund, who decided, and what the agent learned`)}`;
+}
+
+// ---------------------------------------------------------------- client inbox
+const READ = { yes: ["yes", "Yes"], no: ["no", "No"], "needs more information": ["more", "Needs more information"] };
+function readBadge(e, short) {
+  if (!e.intent) return '<span class="meta">not read yet</span>';
+  const [cls, label] = short && e.intent === "needs more information" ? ["more", "More info"] : READ[e.intent] || ["more", e.intent];
+  return `<span class="read ${cls}">${label}${e.intent === "yes" && e.option_label ? " · Option " + esc(e.option_label) : ""}</span>`;
+}
+
+let INBOX_SEL = null;
+const WHEN = (t) => String(t || "").slice(0, 16).replace("T", " ");
+function threadBadge(t) {
+  if (t.status === "sent") return '<span class="pill p-info">waiting</span>';
+  if (t.status !== "replied") return stagePill(t.status);
+  const last = t.replies[t.replies.length - 1];
+  return readBadge(last && last.intent ? last : { intent: READ_OF[(t.reply || {}).decision], option_label: ((t.reply || {}).options || [])[0] }, true);
+}
+function threadHTML(t) {
+  const r = t.reply || {}, rec = t.recommended || {}, picks = r.options || [];
+  const replies = t.replies.length ? t.replies : r.text ? [{ body: r.text, received_at: t.updated_at }] : [];
+  const msgs = [`<div><div class="meta">To ${esc(t.contact_name || "")} &lt;${esc(t.sent_to || "")}&gt; · ${esc(WHEN(t.sent_at))}</div>
+      <div class="bubble out">${esc(t.body_text || "")}</div></div>`,
+    ...replies.map((e) => `<div><div class="meta">From the client · ${esc(WHEN(e.received_at))}</div><div class="bubble in">${esc(e.body || "")}</div>
+      ${e.intent ? `<div class="readline">Read as ${readBadge(e)}${e.requested_change ? ` · asks for: ${esc(e.requested_change)}` : ""}${e.question ? ` · question: ${esc(e.question)}` : ""}</div>` : ""}</div>`)];
+  const notes = (r.notes || []).map((n) => `<div class="misses">⚠ ${esc(n)}</div>`).join("");
+  let buttons = "";
+  if (t.status === "replied") {
+    const opts = [...(t.packages || []).map((l) => ({ key: "book", on: rec.action === "book" && picks.includes(l), html: `data-do="book" data-label="${esc(l)}">Book Option ${esc(l)}` })),
+      { key: "counter", on: rec.action === "counter", html: `data-do="counter">Search again with the client's ask` },
+      { key: "refund", on: rec.action === "refund", html: `data-do="refund">Refund the spot` }];
+    buttons = [...opts.filter((o) => o.on), ...opts.filter((o) => !o.on)].map((o) => `<button class="btn ${o.on ? "ok" : ""}" ${o.html}</button>`).join("") +
+      `<button class="btn danger" data-do="withdraw">Withdraw</button>`;
+  } else if (t.status === "sent") {
+    buttons = `<button class="btn" data-do="poll">Check for a reply now</button>
+       <input type="text" class="answer" placeholder="${CFG.sandbox_inbox ? "Reply as the client, e.g. Yes, that works for us" : "Enter the client's answer from a call"}">
+       <button class="btn primary" data-do="${CFG.sandbox_inbox ? "reply" : "manual_reply"}">${CFG.sandbox_inbox ? "Send as the client" : "Use this answer"}</button>
+       <button class="btn danger" data-do="withdraw">Withdraw</button>`;
+  }
+  return `<div class="thread">
+    <div class="th"><b>${esc(t.advertiser_name)}</b><span>${esc(t.spot_id)}</span><span class="meta">${esc(t.market || "")}${t.seller_name ? " · " + esc(t.seller_name) : ""}</span></div>
+    <div class="tb">${stageMeter(t.status, true)}<div class="meta">${esc(t.subject || "")}</div>${msgs.join("")}${notes}</div>
+    <div class="rec"><b>${rec.action && rec.action !== "wait" ? "Recommended: " : ""}${esc(rec.label || "")}${t.status === "replied" && r.confidence != null ? ` <span class="meta">(read ${pct0(r.confidence)} sure)</span>` : ""}</b>
+      <div class="rb">${buttons}<button class="btn push" data-do="open">Open the conversation</button></div></div></div>`;
+}
+const SAMPLE_REC = { yes: "Book the option the client picked", no: "Refund the spot", "needs more information": "Answer the client or search again" };
+
+async function renderInbox(body) {
+  const [threads, emails] = await Promise.all([getJSON("/api/inbox/threads"), getJSON("/api/client-emails")]);
+  const live = new Set(threads.map((t) => t.offer_id));
+  const earlier = emails.filter((e) => !live.has(e.offer_id));
+  if (!threads.some((t) => t.thread_id === INBOX_SEL)) INBOX_SEL = (threads[0] || {}).thread_id || null;
+  const sel = threads.find((t) => t.thread_id === INBOX_SEL);
+  const item = (t) => `<div class="titem ${t.thread_id === INBOX_SEL ? "on" : ""}" data-t="${t.thread_id}">
+      <div class="r1"><b>${esc(t.advertiser_name)}</b>${threadBadge(t)}<span class="meta">${ago(t.updated_at)}</span></div>
+      <div class="snip">${esc(t.replies.length ? t.replies[t.replies.length - 1].body : t.subject || "")}</div></div>`;
+  body.innerHTML = `<div class="note" style="padding-top:12px">Every client reply is stored and read automatically (yes, no, or needs more information, and which option
+      or change they ask for). The seller confirms the next step here; nothing is booked without it.</div>
+    <div class="inbox">
+      <div class="tlist"><div class="tl-h">Offers sent to clients · ${threads.length}</div>${threads.map(item).join("") || '<div class="meta" style="padding:12px">No offers sent yet.</div>'}</div>
+      <div>${sel ? threadHTML(sel) : '<div class="empty">Send an offer to a client and its conversation shows here.</div>'}</div>
+    </div>
+    ${earlier.length ? section("Earlier client replies", "var(--faint)", earlier.map((e) => `<div class="ocard">
+        <div class="top"><b>${esc(e.advertiser_name)}</b><span class="meta">${esc(e.market || "")}</span><span class="meta">${esc(WHEN(e.received_at))}</span></div>
+        <div class="bubble in" style="margin-top:6px">${esc(e.body || "")}</div>
+        <div class="readline">Read as ${readBadge(e)}${e.requested_change ? ` · asks for: ${esc(e.requested_change)}` : ""}</div>
+        <div class="meta" style="margin-top:4px">Recommended: ${esc(SAMPLE_REC[e.intent] || "Open and read it")}</div></div>`),
+      "replies to earlier offers, read the same way") : ""}`;
+  body.onclick = async (e) => {
+    const it = e.target.closest("[data-t]");
+    if (it) { INBOX_SEL = it.dataset.t; return render(); }
+    const b = e.target.closest("[data-do]"); if (!b || !sel) return;
+    const what = b.dataset.do, text = body.querySelector(".thread .answer")?.value.trim();
+    if (what === "open") return openThread(sel.thread_id, sel.spot_id);
+    if (what === "poll") {
+      b.textContent = "Checking…";
+      const r = await postJSON("/api/mail/poll");
+      if (r.picked_up.length) return render();
+      b.textContent = "No reply yet · check again"; return;
+    }
+    if (what === "reply") {
+      if (!text) return;
+      b.disabled = true; b.textContent = "Sending…";
+      await postJSON(`/api/inbox/${sel.offer_id}/reply`, { text });
+      return render();
+    }
+    if (what === "manual_reply" && !text) return;
+    if (what === "withdraw" && !confirm("Withdraw this offer and release the held avails?")) return;
+    await openThread(sel.thread_id, sel.spot_id);
+    const label = b.dataset.label;
+    const review = what === "book" ? { action: "book", label, labels: [label] } : what === "manual_reply" ? { action: "manual_reply", text } : { action: what };
+    const said = { book: `Book Option ${label}`, counter: "Search again with the client's ask", refund: "Refund the spot", withdraw: "Withdraw the offer",
+      manual_reply: `Client's answer (entered by hand): ${text}` }[what];
+    $("#transcript .reviewbox")?.remove();
+    act(review, said);
+  };
+}
+
+// ---------------------------------------------------------------- agent panel
+function newThread() {
+  THREAD = crypto.randomUUID();
+  $("#thread").textContent = "Conversation · " + new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  $("#transcript").innerHTML = "";
+}
+
+function findMakeGood(spot) {
+  newThread();
+  sendToAgent({ message: `Find a commensurate make-good for spot ${spot}`, spot_id: spot, mode: "find" });
+}
+
+async function openThread(threadId, label) {
+  THREAD = threadId;
+  $("#thread").textContent = "Make-good · " + (label || "");
+  $("#transcript").innerHTML = '<div class="loading"><span class="spinner"></span> Loading…</div>';
+  try {
+    const t = await getJSON(`/api/threads/${threadId}`);
+    $("#transcript").innerHTML = "";
+    const st = t.state || {};
+    const run = addMsg("agent", `<div class="trail">${(st.trail || []).map(stepHTML).join("")}</div>`);
+    if (t.review && t.review.explanation) addMsg("agent", md(t.review.explanation + "\n\n" + (t.review.table_md || "")));
+    for (const m of t.mail || []) {
+      addMsg(m.direction === "in" ? "user" : "agent", `<div class="meta">${m.direction === "in" ? "From the client" : "Sent to " + esc(m.to_addr || "")} · ${esc(String(m.logged_at).slice(0, 16))}</div>
+        <div class="email">${esc(m.body_text || "")}</div>`);
+    }
+    const host = addMsg("agent", stageMeter(st.stage, true));
+    LAST = st;
+    renderPending(st, host);
+    run.scrollIntoView({ block: "start" });
+  } catch (e) {
+    $("#transcript").innerHTML = `<div class="error">Could not open this make-good: ${esc(e.message)}</div>`;
+  }
+}
+
+function addMsg(cls, html) {
+  const d = document.createElement("div"); d.className = "msg " + cls; d.innerHTML = html;
+  $("#transcript").appendChild(d); d.scrollIntoView({ block: "end" }); return d;
+}
+
+function stepHTML(s) {
+  const written = ["explain_recommendation", "ask_genie", "draft_offer", "parse_client_reply"].includes(s.node);
+  const person = ["human_review", "finalize", "manager_review", "confirm_send", "seller_confirm", "confirm_rule", "save_rule"].includes(s.node);
+  return `<div class="step ${written ? "llm" : ""} ${person ? "review" : ""}"><span class="t">${esc(s.title)}</span>${s.detail ? `<div class="d">${esc(s.detail)}</div>` : ""}</div>`;
+}
+
+async function sendToAgent(payload, label) {
+  if (BUSY) return;
+  if (!THREAD) newThread();
+  BUSY = true; $("#send").disabled = true;
+  $("#transcript").querySelector(".empty")?.remove();
+  addMsg("user", esc(label || payload.message));
+  const run = addMsg("agent", '<div class="trail"></div><div class="runmeta"><span class="spinner"></span> Working…</div>');
+  const trail = run.querySelector(".trail"), meta = run.querySelector(".runmeta");
+  let answer = null;
+  const started = Date.now();
+  try {
+    const r = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...payload, thread_id: THREAD }) });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.status);
+    const reader = r.body.getReader(), dec = new TextDecoder(); let buf = "";
+    for (;;) {
+      const { value, done } = await reader.read(); if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf("\n\n")) >= 0) {
+        const line = buf.slice(0, i).replace(/^data: /, ""); buf = buf.slice(i + 2);
+        if (!line) continue;
+        const ev = JSON.parse(line);
+        if (ev.type === "step") for (const s of ev.data) { trail.insertAdjacentHTML("beforeend", stepHTML(s)); run.scrollIntoView({ block: "end" }); }
+        if (ev.type === "text") answer = addMsg("agent", md(ev.data));
+        if (ev.type === "error") addMsg("agent", `<span class="error">${esc(ev.data)}</span>`);
+        if (ev.type === "final") { LAST = ev.data; finishRun(meta, ev.data, answer || run, (Date.now() - started) / 1000); }
+      }
+    }
+  } catch (e) {
+    meta.innerHTML = `<span class="error">Request failed: ${esc(e.message)}</span>`;
+  } finally {
+    BUSY = false; $("#send").disabled = false;
+    if (payload.review) INSIGHTS = null;
+    if (TAB !== "overview" || payload.review) render();
+    refreshCounts();
+  }
+}
+
+function finishRun(meta, out, answerEl, seconds) {
+  meta.innerHTML = `${out.genie ? `<span class="genie-badge">From make-goods analytics</span>` : ""}
+    <span>Done in ${Math.max(1, Math.round(seconds))}s</span>`;
+  if (out.spot_id && out.intent !== "open_question") meta.insertAdjacentHTML("afterend", stageMeter(out.stage, true));
+  renderPending(out, answerEl);
+}
+
+function act(review, label) { sendToAgent({ message: "", review }, label); }
+
+const GREEN_RULES = 8;  // an option passing 8 or more of the 11 make-good rules shows green
+const RULE_SHORT = { station: "Station", daypart: "Daypart", rating: "Rating floor", length: "Spot length", window: "Window",
+  flight: "Flight dates", available: "Open, unbooked", competitive: "No competitor", client_rules: "Client rules",
+  impressions: "Impressions owed", dollars: "Value" };
+function packageCard(p, offerable, checked) {
+  const ok = p.rules_passed >= GREEN_RULES;
+  return `<div class="pkg ${ok ? "full" : ""}">
+    <div class="ph"><b>Option ${esc(p.package_label)}</b>
+      <span class="tier ${ok ? "commensurate" : "near_miss"}">${ok ? "✓" : "≈"} ${p.rules_passed}/${p.rules_total} rules</span>
+      ${offerable ? `<label><input type="radio" name="offer-pick" class="offer-pick" value="${esc(p.package_label)}" ${checked ? "checked" : ""}> offer this</label>` : ""}</div>
+    <ul class="chk">${(p.checklist || []).map((c) => `<li class="${c.passed ? "" : "no"}" title="${esc(c.label)}: ${esc(c.detail || "")}">${c.passed ? "✓" : "✕"} ${esc(RULE_SHORT[c.rule] || c.label)}</li>`).join("")}</ul>
+    <div class="facts">
+      <div class="meta">${esc(p.strategy || "")}</div>
+      ${(p.lines || []).map((l) => `<div class="line"><b>${esc(String(l.air_date))} ${esc(l.daypart)}</b> · ${esc(l.program_name)} <span class="meta">${esc(l.avail_id)}</span></div>`).join("")}
+      <div>${(p.est_impressions || 0).toLocaleString()} impressions · ${pct0(p.coverage_pct)} of owed</div>
+      <div class="dollar ${p.dollar_match ? "ok" : "bad"}">${p.dollar_match ? "✓" : "✕"} ${fmt$(p.proposed_value_usd)}: ${esc(p.dollar_label || "")}</div>
+      ${p.partial_refund_usd > 0 ? `<div class="meta">A partial refund of ${fmt$(p.partial_refund_usd)} would close the value gap.</div>` : ""}
+    </div>
+  </div>`;
+}
+
+function renderPending(out, host) {
+  const p = out.pending; if (!p) return;
+  const can = (a) => (p.actions || []).includes(a);
+  const box = document.createElement("div"); box.className = "reviewbox"; box.style.marginTop = "8px";
+  const mgr = ["manager", "admin"].includes(CFG.role);
+  if (p.type === "make_good_review") {
+    const pk = out.packages || [], opts = out.ranked || [];
+    box.innerHTML = `<div class="meta" style="margin-bottom:4px"><b>Your decision</b>: ${pk.length ? "pick the option to offer the client (a sales manager signs off before it is sent)" :
+        "approve the refund or escalate it"}.</div>
+      ${pk.length ? `<div class="pkgs">${pk.map((x, i) => packageCard(x, can("offer"), i === 0)).join("")}</div>` : ""}
+      ${(out.suggestions || []).length ? `<div class="meta">To close the gap in your selection: ${out.suggestions.map((s) => `${esc(s.avail_id)} (${esc(s.reason)})`).join("; ")}</div>` : ""}
+      ${opts.length && can("review_selection") ? `<details><summary>Pick your own avails</summary>${opts.map((o) => `<label><input type="checkbox" class="own-pick" value="${o.avail_id}">
+          #${o.rank} ${matchBadge(o)} ${tierBadge(o)} ${o.avail_id} · ${esc(o.program_name)} · ${esc(String(o.air_date))} · ${fmt$(o.rate_card_usd)}${missesLine(o)}</label>`).join("")}
+        <div class="actions"><button class="btn" data-a="review_selection">Check my selection</button></div></details>` : ""}
+      <div class="actions">
+        ${can("offer") && pk.length ? `<button class="btn ok" data-a="offer">Offer the selected option to the client</button>` : ""}
+        ${!pk.length || out.outcome === "refund" ? `<button class="btn ok" data-a="accept">Approve refund</button>` : ""}
+        ${can("refund") ? `<button class="btn" data-a="refund">Refund instead</button>` : ""}
+        ${can("reject") ? `<button class="btn danger" data-a="reject">${out.outcome === "refund" ? "Escalate" : "Reject #1, find another"}</button>` : ""}
+      </div>`;
+  } else if (p.type === "manager_review") {
+    box.innerHTML = `<div class="meta"><b>Waiting for a sales manager's sign-off</b> on "${esc(p.subject || "")}" (Options ${esc((p.labels || []).join(", "))}).</div>
+      ${mgr ? `<div class="actions"><input type="text" class="note-in" placeholder="Note to the seller (optional)" style="flex:1">
+        <button class="btn ok" data-a="approve">Approve</button><button class="btn" data-a="request_changes">Ask for changes</button>
+        <button class="btn danger" data-a="reject">Reject</button></div>` : `<div class="meta">Your sales manager has it in their approvals.</div>`}`;
+  } else if (p.type === "confirm_send") {
+    box.innerHTML = `<div class="meta"><b>Approved.</b> Send "${esc(p.subject || "")}" to the client?</div>
+      <div class="actions"><button class="btn ok" data-a="send">Send to the client</button><button class="btn danger" data-a="cancel">Cancel the offer</button></div>`;
+  } else if (p.type === "await_client") {
+    box.innerHTML = `<div class="meta"><b>Sent to ${esc(p.sent_to || "the client")}.</b> Waiting for their reply; the offered avails are held for them.</div>
+      <div class="actions"><button class="btn" data-a="poll">Check for a reply now</button>
+        <input type="text" class="manual-in" placeholder="Or enter the client's answer from a call" style="flex:1"><button class="btn" data-a="manual_reply">Use this answer</button>
+        <button class="btn danger" data-a="withdraw">Withdraw the offer</button></div>`;
+  } else if (p.type === "seller_confirm") {
+    const r = p.parsed || {};
+    const picks = r.options && r.options.length ? r.options : [];
+    box.innerHTML = `<div class="meta"><b>The client ${esc({ accept: "picked " + picks.map((x) => "Option " + x).join(" and "), decline: "declined", counter: "asked for something different",
+        question: "has a question", unclear: "replied, but it is unclear" }[r.decision] || "replied")}</b> (${pct0(r.confidence)} sure${r.sender_verified === false ? ", from an unexpected address" : ""}).
+        ${r.evidence_quote ? `<div class="email">“${esc(r.evidence_quote)}”</div>` : ""}${r.question ? `<div>Question: ${esc(r.question)}</div>` : ""}
+        ${(r.notes || []).map((n) => `<div class="misses">⚠ ${esc(n)}</div>`).join("")}</div>
+      <div class="actions">${(p.labels || []).map((l) => `<button class="btn ${picks.includes(l) ? "ok" : ""}" data-a="book" data-label="${esc(l)}">Book Option ${esc(l)}</button>`).join("")}
+        ${r.decision === "counter" || r.decision === "question" ? `<button class="btn" data-a="counter">Search again with the client's ask</button>` : ""}
+        <button class="btn" data-a="refund">Refund instead</button><button class="btn danger" data-a="withdraw">Withdraw</button></div>`;
+  } else if (p.type === "confirm_rule") {
+    box.innerHTML = `<div class="meta"><b>Save this rule for ${esc(p.advertiser_name)}?</b> ${esc((p.rule || {}).label || "")}
+        (${(p.rule || {}).strength === "hard" ? "never offered" : "ranked higher"}, on every search for this client)</div>
+      <div class="actions"><button class="btn ok" data-a="save">Save rule</button><button class="btn" data-a="cancel">Don't save</button></div>`;
+  } else return;
+  box.onchange = (e) => {
+    if (!e.target.classList.contains("offer-pick")) return;
+    box.querySelectorAll(".pkg").forEach((c) => c.classList.toggle("picked", c.contains(e.target)));
+  };
+  box.querySelector(".offer-pick:checked")?.closest(".pkg")?.classList.add("picked");
+  box.onclick = async (e) => {
+    const a = e.target.dataset.a; if (!a) return;
+    const note = box.querySelector(".note-in")?.value || undefined;
+    if (a === "offer") {
+      const label = box.querySelector(".offer-pick:checked")?.value;
+      if (!label) return alert("Pick the option to offer.");
+      box.remove(); return act({ action: "offer", labels: [label] }, `Offer Option ${label} to the client`);
+    }
+    if (a === "review_selection") {
+      const ids = [...box.querySelectorAll(".own-pick:checked")].map((x) => x.value);
+      if (!ids.length) return alert("Pick at least one avail.");
+      box.remove(); return act({ action: "review_selection", avail_ids: ids }, `Check my selection: ${ids.join(", ")}`);
+    }
+    if (a === "book") { box.remove(); return act({ action: "book", label: e.target.dataset.label || "A", labels: [e.target.dataset.label || "A"] }, `Book Option ${e.target.dataset.label || "A"}`); }
+    if (a === "poll") {
+      e.target.textContent = "Checking…";
+      const r = await postJSON("/api/mail/poll");
+      if (r.picked_up.some((x) => x.thread_id === THREAD)) return openThread(THREAD, "client reply");
+      e.target.textContent = "No reply yet · check again"; return;
+    }
+    if (a === "manual_reply") {
+      const text = box.querySelector(".manual-in").value.trim(); if (!text) return;
+      box.remove(); return act({ action: "manual_reply", text }, `Client's answer (entered by hand): ${text}`);
+    }
+    const labels = { approve: "Approve the offer", request_changes: "Ask for changes", reject: "Reject", send: "Send the offer", cancel: "Cancel",
+      withdraw: "Withdraw the offer", counter: "Search again with the client's ask", refund: "Refund instead", accept: "Approve refund", save: "Save the rule" };
+    box.remove();
+    act({ action: a, ...(note ? { note } : {}) }, labels[a] || a);
+  };
+  host.appendChild(box);
+}
+
+async function refreshCounts() {
+  try {
+    const [rv, of] = await Promise.all([getJSON("/api/reviews"), getJSON("/api/offers")]);
+    $("#c-offers").textContent = rv.length + of.filter((o) => ["awaiting_manager", "sent", "replied"].includes(o.status)).length;
+  } catch (e) { /* counts are best-effort */ }
+}
+
+// ---------------------------------------------------------------- wiring
+document.querySelectorAll(".tab").forEach((t) => t.onclick = () => {
+  document.querySelectorAll(".tab").forEach((x) => x.classList.remove("active"));
+  t.classList.add("active"); TAB = t.dataset.tab; render();
+});
+$("#send").onclick = () => { const v = $("#input").value.trim(); if (v) { $("#input").value = ""; sendToAgent({ message: v }); } };
+$("#input").onkeydown = (e) => { if (e.key === "Enter") $("#send").click(); };
+document.querySelectorAll("[data-q]").forEach((b) => b.onclick = () => sendToAgent({ message: b.dataset.q }));
+$("#newthread").onclick = () => { newThread(); $("#transcript").innerHTML = '<div class="empty">New conversation.</div>'; };
+$("#identity").onchange = async (e) => {
+  e.target.disabled = true;
+  try { await postJSON("/api/admin/view-as", { persona: e.target.value }); } catch (err) { alert("Could not switch: " + err.message); }
+  location.reload();
+};
+
+function setTheme(t) {
+  document.documentElement.dataset.theme = t;
+  localStorage.setItem("mg-theme", t);
+  $("#theme").textContent = t === "dark" ? "◐ Light" : "◐ Dark";
+  if (TAB === "overview" && INSIGHTS) drawOverview($("#tab-body"), INSIGHTS);  // charts re-read the theme tokens
+}
+$("#theme").onclick = () => setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+$("#theme").textContent = document.documentElement.dataset.theme === "dark" ? "◐ Light" : "◐ Dark";
+let resizeTimer;
+window.addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => { if (TAB === "overview" && INSIGHTS) drawOverview($("#tab-body"), INSIGHTS); }, 150);
+});
+(async () => {
+  try {
+    CFG = await getJSON("/api/config");
+    $("#asof").textContent = "As of " + CFG.as_of;
+    if (CFG.app_title) { $("#app-title").textContent = CFG.app_title; document.title = CFG.app_title + " Agent"; }
+    $("#user").textContent = CFG.display_name || CFG.user;
+    $("#role").textContent = CFG.role ? ROLE[CFG.role] + (CFG.role === "seller" && CFG.seller_id ? " · " + CFG.seller_id : "") : "No access yet";
+    if (CFG.granted_role === "admin") {
+      const people = await getJSON("/api/admin/personas");
+      $("#identity").innerHTML = people.map((x) => `<option value="${esc(x.persona)}" ${x.persona === CFG.persona ? "selected" : ""}>${
+        x.persona === "admin" ? "Viewing as: me (admin)" : "Viewing as: " + esc(x.label) + (x.persona.startsWith("MGR") ? " (sales manager)" : " (seller)")}</option>`).join("");
+      $("#identity").hidden = false;
+      $("#user").hidden = true;
+    }
+    if (CFG.role && CFG.role !== "admin") { TAB = "queue"; document.querySelectorAll(".tab").forEach((x) => x.classList.toggle("active", x.dataset.tab === "queue")); }
+  } catch (e) { $("#asof").textContent = "config unavailable"; }
+  const tabLink = location.hash.match(/^#tab=(\w+)$/);  // e.g. #tab=inbox
+  if (tabLink && document.querySelector(`.tab[data-tab="${tabLink[1]}"]`)) {
+    TAB = tabLink[1]; document.querySelectorAll(".tab").forEach((x) => x.classList.toggle("active", x.dataset.tab === TAB));
+  }
+  const deep = location.hash.match(/^#spot=(SPT-\d{7})$/);  // links from the morning digest
+  if (deep) { TAB = "queue"; document.querySelectorAll(".tab").forEach((x) => x.classList.toggle("active", x.dataset.tab === "queue")); findMakeGood(deep[1]); }
+  render(); refreshCounts();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,74 @@
+resources:
+  apps:
+    makegoods_agent:
+      name: ${var.app_name}
+      description: "Serves the registered make-goods agent (makegoods_agent@champion) with Lakebase memory and the ad-ops review UI"
+      source_code_path: ../app
+      # the app acts as the signed-in person: their Unity Catalog row filters apply to every query and Genie answer
+      user_api_scopes:
+        - sql
+        - dashboards.genie
+      config:
+        command: ["uv", "run", "start-server"]
+        env:
+          - name: MLFLOW_TRACKING_URI
+            value: "databricks"
+          - name: MLFLOW_REGISTRY_URI
+            value: "databricks-uc"
+          - name: MLFLOW_EXPERIMENT_ID
+            value_from: "experiment"
+          - name: MLFLOW_TRACING_SQL_WAREHOUSE_ID
+            value_from: "sql-warehouse"
+          - name: MG_WAREHOUSE_ID
+            value_from: "sql-warehouse"
+          - name: MG_CATALOG
+            value: ${var.catalog}
+          - name: MG_SCHEMA
+            value: ${var.schema}
+          - name: MG_LLM_ENDPOINT
+            value: "databricks-claude-sonnet-5-5"
+          - name: MG_USE_PROMPT_REGISTRY
+            value: "false"
+          - name: LAKEBASE_AUTOSCALING_ENDPOINT
+            value_from: "postgres"
+          - name: MLFLOW_DISABLE_AGENT_HINT
+            value: "1"
+          - name: MG_GENIE_SPACE_ID
+            value_from: "genie-space"
+          - name: MG_AGENT_MODEL_URI
+            value: "models:/${var.catalog}.${var.schema}.makegoods_agent@champion"
+          - name: MG_REQUIRE_USER
+            value: "true"
+          - name: MG_MAIL_MODE
+            value: ${var.mail_mode}
+          - name: MG_MAIL_REDIRECT_TO
+            value: ${var.mail_redirect_to}
+          - name: MG_MAIL_ALLOWED
+            value: ${var.mail_allowed}
+          - name: MG_MAIL_SECRET_SCOPE
+            value: ${var.mail_secret_scope}
+          - name: MG_APP_TITLE
+            value: ${var.app_title}
+      resources:
+        - name: "experiment"
+          experiment:
+            experiment_id: ${var.experiment_id}
+            permission: "CAN_MANAGE"
+        - name: "llm-endpoint"
+          serving_endpoint:
+            name: "databricks-claude-sonnet-5-5"
+            permission: "CAN_QUERY"
+        - name: "sql-warehouse"
+          sql_warehouse:
+            id: ${var.warehouse_id}
+            permission: "CAN_USE"
+        - name: "genie-space"
+          genie_space:
+            name: "Make-Goods Analytics"
+            space_id: ${var.genie_space_id}
+            permission: "CAN_RUN"
+        - name: "postgres"
+          postgres:
+            branch: "projects/${var.lakebase_project}/branches/${var.lakebase_branch}"
+            database: "projects/${var.lakebase_project}/branches/${var.lakebase_branch}/databases/databricks-postgres"
+            permission: "CAN_CONNECT_AND_CREATE"

@@ -1,0 +1,16 @@
+resources:
+  pipelines:
+    makegoods_sdp:
+      name: makegoods_sdp
+      catalog: ${var.catalog}
+      schema: ${var.schema}
+      serverless: true
+      continuous: false
+      root_path: ../src/makegoods_sdp
+      libraries:
+        - glob:
+            include: ../src/makegoods_sdp/transformations/**
+      configuration:
+        mg_source_root: /Volumes/${var.catalog}/${var.schema}/raw_landing
+        mg_catalog: ${var.catalog}
+        mg_schema: ${var.schema}

@@ -1,0 +1,18 @@
+resources:
+  jobs:
+    production_monitoring:
+      name: makegoods_production_monitoring
+      description: "Register the quality scorers on the app's experiment and score production traces: code checks on every trace, AI judges on a sample (run once; re-run after changing a scorer or a sample rate)."
+      parameters:
+        - name: experiment_id
+          default: ${var.experiment_id}
+        - name: warehouse_id
+          default: ${var.warehouse_id}
+        - name: sample_rate
+          default: "1.0"
+        - name: judge_sample_rate
+          default: "0.1"
+      tasks:
+        - task_key: start_monitoring
+          notebook_task:
+            notebook_path: ../agent_app/notebooks/04_production_monitoring.py

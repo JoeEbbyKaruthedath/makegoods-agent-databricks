@@ -1,0 +1,22 @@
+resources:
+  jobs:
+    register_agent:
+      name: makegoods_register_agent
+      description: "Log the LangGraph make-goods agent as an MLflow ResponsesAgent, register it in Unity Catalog, smoke-test it, and point an alias (default champion) at the new version."
+      parameters:
+        - name: alias
+          default: champion
+        - name: experiment_id
+          default: ${var.experiment_id}
+        - name: catalog
+          default: ${var.catalog}
+        - name: schema
+          default: ${var.schema}
+        - name: warehouse_id
+          default: ${var.warehouse_id}
+        - name: genie_space_id
+          default: ${var.genie_space_id}
+      tasks:
+        - task_key: register_agent
+          notebook_task:
+            notebook_path: ../agent_app/notebooks/01_register_agent.py

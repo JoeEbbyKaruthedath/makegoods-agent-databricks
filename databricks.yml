@@ -1,0 +1,83 @@
+bundle:
+  name: makegoods_agent
+
+include:
+  - resources/*.yml
+
+variables:
+  catalog:
+    description: Unity Catalog catalog for the make-goods data layer
+    default: YOUR_CATALOG
+  schema:
+    description: Schema for bronze/silver/gold, rule config and UC tool functions
+    default: makegoods
+  warehouse_id:
+    description: SQL warehouse used by the agent's UC function calls
+    default: YOUR_WAREHOUSE_ID
+  app_name:
+    description: Databricks App name (<= 26 chars)
+    default: makegoods-dev
+  app_title:
+    description: Name shown in the app header and browser tab
+    default: Make-Goods
+  lakebase_project:
+    description: Lakebase project that holds the app's branches
+    default: makegoods
+  lakebase_branch:
+    description: Lakebase branch the app's service principal owns (memory + review queue + decision log)
+    default: app-dev
+  experiment_id:
+    description: MLflow experiment for the agent's traces, evaluation runs and registered versions
+    default: YOUR_EXPERIMENT_ID
+  genie_space_id:
+    description: Genie space that answers open make-goods questions
+    default: YOUR_GENIE_SPACE_ID
+  mail_mode:
+    description: "Client offer email: sandbox (stays in the app, for rehearsals), gmail, or off"
+    default: sandbox
+  mail_redirect_to:
+    description: Demo inbox that receives offers to the synthetic client contacts (plus-addressed per advertiser); none = no demo inbox
+    default: none
+  mail_allowed:
+    description: Comma-separated addresses or @domains allowed to receive offers besides the demo inbox; none = no one else
+    default: none
+  mail_secret_scope:
+    description: Secret scope with the mail credentials (gmail_client_id, gmail_client_secret, gmail_refresh_token, gmail_sender, ref_secret)
+    default: makegoods-mail
+  deploy_folder:
+    description: Folder under ~/.bundle for the v2 deployment (keep the folder an existing deployment uses)
+    default: makegoods_agent
+
+targets:
+  # development workspace
+  dev:
+    mode: development
+    default: true
+    workspace:
+      host: https://YOUR_WORKSPACE_HOST
+
+  # v2: full make-good lifecycle (packages, offers by email, client rules, per-user access). Deploys only from the
+  # feature branch, into its own schema, app, Lakebase branch and model, so the dev app keeps running unchanged.
+  # Workspace values come from .databricks/bundle/v2/variable-overrides.json (git-ignored); see README.
+  v2:
+    bundle:
+      git:
+        branch: feature/v2-lifecycle
+    workspace:
+      root_path: ~/.bundle/${var.deploy_folder}/v2
+    variables:
+      schema: makegoods_v2
+      app_name: makegoods-v2
+      lakebase_branch: app-v2
+
+sync:
+  exclude:
+    - data/**
+    - .venv/**
+    - agent_app/.venv/**
+    - agent_app/.env
+    - agent_app/uv.lock  # not uploaded: the app resolves dependencies at deploy time
+    - app/.venv/**
+    - app/uv.lock
+    - app/.env
+    - "**/__pycache__/**"

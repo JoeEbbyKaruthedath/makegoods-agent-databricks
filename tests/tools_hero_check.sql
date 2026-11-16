@@ -1,0 +1,10 @@
+USE CATALOG YOUR_CATALOG;
+USE SCHEMA YOUR_SCHEMA;
+SELECT spot_id, advertiser_name, call_letters, broadcast_date, daypart, program_name, audience_segment_text, guaranteed_rating, owed_impressions, makegood_deadline, latest_offer_status FROM spot_context('SPT-0058222');
+SELECT * FROM audience_mapper('ADV-0151', 'Adults 25-54');
+SELECT * FROM inventory_rule_summary('SPT-0058222') ORDER BY avails DESC;
+SELECT avail_id, air_date, daypart, program_name, adjacency_tags, est_impressions, impression_equivalence FROM inventory_search('SPT-0058222');
+SELECT rank, avail_id, air_date, program_name, score, score_breakdown, reasons FROM commensurate_scorer('SPT-0058222', (SELECT collect_list(avail_id) FROM inventory_search('SPT-0058222'))) ORDER BY rank LIMIT 4;
+SELECT rank, avail_id, air_date, program_name, score, reasons FROM commensurate_scorer('SPT-0058222', (SELECT collect_list(avail_id) FROM inventory_search('SPT-0058222')), map('sports', 0.5D, 'live', 0.5D, 'entertainment', -0.5D, 'drama', -0.5D)) ORDER BY rank LIMIT 4;
+SELECT * FROM shortfall_calculator('SPT-0058222', array('AVL-040016'));
+SELECT is_commensurate('SPT-0058222', avail_id) r, avail_id FROM (SELECT avail_id FROM evaluate_inventory('SPT-0058222') LIMIT 3);

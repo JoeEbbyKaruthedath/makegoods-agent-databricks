@@ -1,0 +1,33 @@
+resources:
+  jobs:
+    daily_preprocess:
+      name: makegoods_daily_preprocess
+      description: "Every morning: prepare make-good options for every open spot with the rules engine (no AI), then email each seller a digest of their open make-goods with links into the app. Paused until you turn it on."
+      schedule:
+        quartz_cron_expression: "0 0 6 * * ?"
+        timezone_id: America/New_York
+        pause_status: PAUSED
+      parameters:
+        - name: catalog
+          default: ${var.catalog}
+        - name: schema
+          default: ${var.schema}
+        - name: mail_mode
+          default: ${var.mail_mode}
+        - name: mail_redirect_to
+          default: ${var.mail_redirect_to}
+        - name: mail_allowed
+          default: ${var.mail_allowed}
+        - name: mail_secret_scope
+          default: ${var.mail_secret_scope}
+        - name: app_url
+          default: ""
+      tasks:
+        - task_key: prepare_options
+          notebook_task:
+            notebook_path: ../agent_app/notebooks/02_daily_preprocess.py
+        - task_key: send_digests
+          depends_on:
+            - task_key: prepare_options
+          notebook_task:
+            notebook_path: ../agent_app/notebooks/03_send_digests.py
